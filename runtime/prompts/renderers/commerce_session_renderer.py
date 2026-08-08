@@ -22,4 +22,15 @@ class CommerceSessionRenderer:
             if session.selected_product is not None
             else "None."
         )
+
+        lines.append("Cart items:")
+        if session.cart_items:
+            for ordinal, item in enumerate(session.cart_items, start=1):
+                lines.append(
+                    f"{ordinal}. {item.product.name} — "
+                    f"{format(item.quantity, 'f')} {item.product.unit}"
+                )
+        else:
+            lines.append("None.")
+
         return "\n".join(lines)

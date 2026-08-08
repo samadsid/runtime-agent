@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-from langgraph.graph import END
-from langgraph.graph import START
-from langgraph.graph import StateGraph
 from langgraph.checkpoint.memory import MemorySaver
-from runtime.graph.memory import ConversationThread
-
-
-from runtime.graph.state import CommerceGraphState
-from runtime.planner import Planner
-from runtime.handlers import CommandHandler
-from runtime.graph.nodes import PlannerNode, ExecuteNode
+from langgraph.graph import END, START, StateGraph
 
 from runtime.graph.adapters import MessageAdapter
+from runtime.graph.memory import ConversationThread
+from runtime.graph.nodes import ExecuteNode, PlannerNode, ResponseNode
+from runtime.graph.state import CommerceGraphState
+from runtime.handlers import CommandHandler
+from runtime.planner import Planner
+from runtime.responses import ResponseGenerator
 
 
 class CommerceGraph:
@@ -23,11 +20,14 @@ class CommerceGraph:
         command_handler: CommandHandler,
         memory_manager: MemorySaver,
         message_adapter: MessageAdapter,
+        response_generator: ResponseGenerator,
     ) -> None:
         
         self._planner_node = PlannerNode(planner, message_adapter)
 
-        self._execute_node = ExecuteNode(command_handler, message_adapter)
+        self._execute_node = ExecuteNode(command_handler)
+
+        self._response_node = ResponseNode(response_generator, message_adapter)
         
         self._memory_manager = memory_manager
         
@@ -45,6 +45,11 @@ class CommerceGraph:
             self._execute_node,
         )
 
+        graph.add_node(
+            "response",
+            self._response_node,
+        )
+
         graph.add_edge(
             START,
             "planner",
@@ -57,6 +62,11 @@ class CommerceGraph:
 
         graph.add_edge(
             "execute",
+            "response",
+        )
+
+        graph.add_edge(
+            "response",
             END,
         )
 

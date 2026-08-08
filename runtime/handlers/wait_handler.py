@@ -1,6 +1,7 @@
 from typing import Generic, TypeVar
 
 from runtime.commands import WaitCommand
+from runtime.contracts import ExecutionStatus, FixedExecutionOutcome
 
 from .base import CommandHandlerBase
 from .result import HandlerResult
@@ -16,6 +17,9 @@ class WaitHandler(CommandHandlerBase[SessionT], Generic[SessionT]):
     ) -> HandlerResult[SessionT]:
 
         return HandlerResult(
-            message="Waiting...",
+            outcome=FixedExecutionOutcome(
+                status=ExecutionStatus.SUCCESS,
+                message="Waiting...",
+            ),
             session=session,
         )

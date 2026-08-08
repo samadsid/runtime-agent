@@ -1,6 +1,7 @@
 from typing import Generic, TypeVar
 
 from runtime.commands import RespondCommand
+from runtime.contracts import ExecutionStatus, FixedExecutionOutcome
 
 from .base import CommandHandlerBase
 from .result import HandlerResult
@@ -16,6 +17,9 @@ class RespondHandler(CommandHandlerBase[SessionT], Generic[SessionT]):
     ) -> HandlerResult[SessionT]:
 
         return HandlerResult(
-            message=command.message,
+            outcome=FixedExecutionOutcome(
+                status=ExecutionStatus.SUCCESS,
+                message=command.message,
+            ),
             session=session,
         )

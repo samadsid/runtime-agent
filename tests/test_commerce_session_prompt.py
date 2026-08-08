@@ -1,7 +1,7 @@
 from decimal import Decimal
 from uuid import uuid4
 
-from commerce.models import CommerceSession, Product
+from commerce.models import CartItem, CommerceSession, Product
 from runtime.prompts.renderers import CommerceSessionRenderer
 
 
@@ -30,5 +30,32 @@ def test_commerce_session_renderer_preserves_result_ordinals() -> None:
         "1. Chicken Breast\n"
         "2. Chicken Wings\n"
         "Selected product:\n"
-        "Chicken Breast"
+        "Chicken Breast\n"
+        "Cart items:\n"
+        "None."
     )
+
+
+def test_commerce_session_renderer_separates_cart_ordinals() -> None:
+    search_result = Product(
+        id=uuid4(),
+        name="Search Result",
+        price=Decimal("100.00"),
+        unit="kg",
+    )
+    cart_product = Product(
+        id=uuid4(),
+        name="Cart Product",
+        price=Decimal("200.00"),
+        unit="pack",
+    )
+    session = CommerceSession(
+        recent_product_results=(search_result,),
+        selected_product=search_result,
+        cart_items=(CartItem(product=cart_product, quantity=Decimal("2.5")),),
+    )
+
+    rendered = CommerceSessionRenderer().render(session)
+
+    assert "Recent product results:\n1. Search Result" in rendered
+    assert "Cart items:\n1. Cart Product — 2.5 pack" in rendered

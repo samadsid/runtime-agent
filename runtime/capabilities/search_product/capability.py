@@ -8,6 +8,13 @@ from runtime.capabilities import (
     CapabilityMetadata,
     CapabilityOutput,
 )
+from runtime.contracts import (
+    ApprovedResponseFragment,
+    ExecutionStatus,
+    FollowUpRequest,
+    GeneratedExecutionOutcome,
+    ResponseFragmentKind,
+)
 
 
 class SearchProductCapability(Capability[CommerceSession]):
@@ -37,9 +44,20 @@ class SearchProductCapability(Capability[CommerceSession]):
 
         if not query:
             return CapabilityOutput(
-                success=False,
                 session=input.session,
-                message="No product query was provided.",
+                outcome=GeneratedExecutionOutcome(
+                    status=ExecutionStatus.MISSING_INPUT,
+                    fragments=(
+                        ApprovedResponseFragment(
+                            id="missing-query",
+                            text="I need a product name to search the catalog.",
+                        ),
+                    ),
+                    follow_up=FollowUpRequest(
+                        id="request-query",
+                        question="What product would you like to search for?",
+                    ),
+                ),
             )
 
         products = await self.service.search(query)
@@ -53,20 +71,44 @@ class SearchProductCapability(Capability[CommerceSession]):
 
         if not products:
             return CapabilityOutput(
-                success=True,
                 session=session,
-                message=f"No products found for '{query}'.",
+                outcome=GeneratedExecutionOutcome(
+                    status=ExecutionStatus.NOT_FOUND,
+                    fragments=(
+                        ApprovedResponseFragment(
+                            id="no-results",
+                            text=f"I couldn't find any products matching '{query}'.",
+                        ),
+                    ),
+                    follow_up=FollowUpRequest(
+                        id="refine-query",
+                        question=(
+                            "What different or more specific product name should I "
+                            "search for?"
+                        ),
+                    ),
+                ),
             )
 
-        lines = [
-            f"{product.name} - ₹{product.price}/{product.unit}" for product in products
+        fragments = [
+            ApprovedResponseFragment(
+                id="search-results-heading",
+                text="Available products:",
+            )
         ]
+        fragments.extend(
+            ApprovedResponseFragment(
+                id=f"product-{ordinal}",
+                text=f"{ordinal}. {product.name} - ₹{product.price}/{product.unit}",
+                kind=ResponseFragmentKind.ITEM,
+            )
+            for ordinal, product in enumerate(products, start=1)
+        )
 
         return CapabilityOutput(
-            success=True,
             session=session,
-            message="Available products:\n\n" + "\n".join(lines),
-            data={
-                "products": products,
-            },
+            outcome=GeneratedExecutionOutcome(
+                status=ExecutionStatus.SUCCESS,
+                fragments=tuple(fragments),
+            ),
         )

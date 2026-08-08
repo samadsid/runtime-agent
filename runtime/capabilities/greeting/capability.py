@@ -8,6 +8,11 @@ from runtime.capabilities import (
     CapabilityName,
     CapabilityOutput,
 )
+from runtime.contracts import (
+    ApprovedResponseFragment,
+    ExecutionStatus,
+    GeneratedExecutionOutcome,
+)
 
 
 class GreetingCapability(Capability[CommerceSession]):
@@ -24,7 +29,14 @@ class GreetingCapability(Capability[CommerceSession]):
     ) -> CapabilityOutput[CommerceSession]:
 
         return CapabilityOutput(
-            success=True,
             session=input.session,
-            message="Hello! How can I help you today!",
+            outcome=GeneratedExecutionOutcome(
+                status=ExecutionStatus.SUCCESS,
+                fragments=(
+                    ApprovedResponseFragment(
+                        id="greeting",
+                        text="MeatUncle is here to help you find the best meat products! How can I assist you today?",
+                    ),
+                ),
+            ),
         )

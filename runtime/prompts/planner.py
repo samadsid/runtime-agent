@@ -63,9 +63,15 @@ class PlannerPromptBuilder(PromptBuilder):
             "{{commerce_session}}",
             self._commerce_session_renderer.render(session),
         )
-        
-        print("System Prompt:\n", system_prompt)
-        print("Planner Prompt:\n", planner_prompt)
+
+        print("===== System Prompt =====")
+        print(system_prompt)
+        print("===========================")
+
+        print("===== Planner Prompt =====")
+        print(planner_prompt)
+        print("===========================")
+
 
         return LLMRequest(
             messages=[

@@ -36,10 +36,7 @@ class ExecuteCapabilityHandler(CommandHandlerBase[SessionT], Generic[SessionT]):
             )
         )
 
-        if output.message is None:
-            raise ValueError(f"Capability '{command.capability}' returned no message.")
-
         return HandlerResult(
-            message=output.message,
+            outcome=output.outcome,
             session=output.session,
         )

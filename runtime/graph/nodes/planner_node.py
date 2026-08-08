@@ -20,19 +20,25 @@ class PlannerNode:
         state: CommerceGraphState,
     ) -> dict[str, Any]:
 
+        print("====================Planner Node called======================")
+
         messages = self._message_adapter.from_framework_messages(
             state.messages,
         )
 
-        print("===== Messages in Planner =====")
-        for message in messages:
-            print(type(message).__name__, ":", message.content)
-        print("===============================")
+        # print("===== Messages in Planner =====")
+        # for message in messages:
+        #     print(type(message).__name__, ":", message.content)
+        # print("===============================")
 
         planner_response = await self._planner.plan(
             messages,
             state.session or CommerceSession(),
         )
+
+        print("===== Planner Node Response =====")
+        print(planner_response)
+        print("=============================================")
 
         return {
             "planner_response": planner_response,

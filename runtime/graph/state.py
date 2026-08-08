@@ -9,6 +9,7 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
 from commerce.models import CommerceSession
+from runtime.contracts import ExecutionOutcome
 from runtime.planner.response import PlannerResponse
 
 
@@ -36,5 +37,10 @@ class CommerceGraphState(BaseModel):
 
     planner_response: Annotated[
         PlannerResponse | None,
+        UntrackedValue,
+    ] = None
+
+    execution_outcome: Annotated[
+        ExecutionOutcome | None,
         UntrackedValue,
     ] = None

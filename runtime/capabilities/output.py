@@ -1,17 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Generic, TypeVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+from runtime.contracts import ExecutionOutcome
 
 SessionT = TypeVar("SessionT")
 
 
 class CapabilityOutput(BaseModel, Generic[SessionT]):
-    success: bool
-
     session: SessionT
-
-    data: dict[str, Any] = Field(default_factory=dict)
-
-    message: str | None = None
+    outcome: ExecutionOutcome

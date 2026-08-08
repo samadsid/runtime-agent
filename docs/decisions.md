@@ -156,3 +156,48 @@ resolved deterministically by the selection capability against the most recent
 ordered product results stored in `CommerceSession`.
 
 Revisit before production persistence.
+
+---
+
+## ADR-012
+
+Generate customer responses from typed, approved execution outcomes.
+
+Status
+
+Accepted
+
+Reason
+
+Capabilities and domain services remain authoritative for execution status,
+approved facts, missing information, and allowed options. A presentation-only
+`ResponseNode` uses an LLM to express that approved outcome in the customer's
+language and references every approved fragment and question ID. The outcome
+is transient and is not checkpointed.
+
+The latest customer message may be passed separately as a language signal.
+No language list or translated application copy is hardcoded. The response
+prompt requires the LLM to preserve approved business values exactly and to
+avoid adding facts or outcomes.
+
+---
+
+## ADR-013
+
+Keep the cart in immutable commerce session state for the in-memory slice.
+
+Status
+
+Accepted
+
+Reason
+
+Cart items are ordered `CartItem` values stored in `CommerceSession`. Product
+identity is resolved by `Product.id`; adding the same product replaces its
+quantity without changing its cart ordinal. Cart ordinals and recent
+product-result ordinals are separate namespaces. Cart mutation rules remain in
+the commerce domain, while capabilities validate inputs and produce approved
+execution outcomes.
+
+Revisit when cart state must survive process restarts or support concurrent
+updates.

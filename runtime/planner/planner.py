@@ -33,7 +33,6 @@ class Planner:
         session: CommerceSession,
     ) -> PlannerResponse:
 
-        print("[Planner] Building prompt for conversation state...")
         request = self._prompt_builder.build(
             messages,
             session,
@@ -44,8 +43,6 @@ class Planner:
             response_model=PlannerDecision,
         )
 
-        print(f"[Planner] decision: {decision}")
         command = PlannerDecisionMapper.to_command(decision)
 
-        print(f"[Planner] Mapped command: {command}")
         return PlannerResponse(command=command)

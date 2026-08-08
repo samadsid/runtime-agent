@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "qwen3:8b"
     LLM_TEMPERATURE: float = 0.2
     LLM_MAX_TOKENS: int = 1024
+    
+    GEMINI_API_KEY: str = "AIzaSyA7_TydNkgfryQeeP74KnhsfMfMoy8wGmc"
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
 
     # PostgreSQL
     POSTGRES_HOST: str = "localhost"

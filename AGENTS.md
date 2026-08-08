@@ -104,6 +104,8 @@ Capability
 - Keep capabilities small.
 - Keep nodes orchestration-only.
 - Keep graph state durable.
+- Match the language, script, and chat style of the customer's latest message
+  through the response LLM, without hardcoded languages or translated copies.
 
 ---
 
@@ -121,6 +123,10 @@ ExecuteNode
 
 ↓
 
+ResponseNode
+
+↓
+
 END
 
 ---
@@ -132,11 +138,15 @@ CommerceGraphState contains
 - conversation_id
 - messages
 - command
-- session (planned)
+- execution_outcome (transient)
+- session (durable)
 
 Messages are conversation history.
 
 Session represents business state.
+
+CommerceSession currently includes selected-product context and an ordered,
+session-scoped cart. Product-result ordinals and cart ordinals are separate.
 
 ---
 

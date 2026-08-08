@@ -3,7 +3,7 @@ from __future__ import annotations
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
-from commerce.models import CommerceSession, Product
+from commerce.models import CartItem, CommerceSession, Product
 
 
 class GraphCheckpointer:
@@ -18,6 +18,7 @@ class GraphCheckpointer:
         serializer = JsonPlusSerializer(
             allowed_msgpack_modules=(
                 CommerceSession,
+                CartItem,
                 Product,
             ),
         )
