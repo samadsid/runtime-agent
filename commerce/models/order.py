@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .fulfilment import FulfilmentActorType
+
 
 class OrderStatus(str, Enum):
     CONFIRMED = "CONFIRMED"
@@ -32,6 +34,19 @@ class OrderItem(BaseModel):
     quantity: Decimal = Field(gt=0, allow_inf_nan=False)
 
 
+class OrderStatusHistory(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    order_id: UUID
+    from_status: OrderStatus | None
+    to_status: OrderStatus
+    actor_id: UUID | None
+    actor_type: FulfilmentActorType
+    reason: str | None
+    created_at: datetime
+
+
 class Order(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -46,3 +61,4 @@ class Order(BaseModel):
     created_at: datetime
     confirmed_at: datetime
     items: tuple[OrderItem, ...] = ()
+    status_history: tuple[OrderStatusHistory, ...] = ()

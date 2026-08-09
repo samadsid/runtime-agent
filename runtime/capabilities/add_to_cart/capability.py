@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field, ValidationError
 
-from commerce.models import CommerceSession
+from commerce.models import CheckoutState, CommerceSession
 from commerce.services import CartService
 from runtime.capabilities import (
     Capability,
@@ -68,7 +68,13 @@ class AddToCartCapability(Capability[CommerceSession]):
             product,
             arguments.quantity,
         )
-        session = input.session.model_copy(update={"cart_items": cart.items})
+        session = input.session.model_copy(
+            update={
+                "cart_items": cart.items,
+                "checkout": CheckoutState(),
+                "pending_cart_clear": None,
+            }
+        )
         quantity = format(arguments.quantity, "f")
         return CapabilityOutput(
             session=session,

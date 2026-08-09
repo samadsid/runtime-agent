@@ -36,7 +36,14 @@ class ViewCartCapability(Capability[CommerceSession]):
             input.context.tenant_id, input.context.conversation_id
         )
         items = cart.items if cart is not None else ()
-        session = input.session.model_copy(update={"cart_items": items})
+        session_updates: dict[str, object] = {"cart_items": items}
+        pending = input.session.pending_cart_clear
+        if cart is None or (
+            pending is not None
+            and (pending.cart_id != cart.id or pending.cart_version != cart.version)
+        ):
+            session_updates["pending_cart_clear"] = None
+        session = input.session.model_copy(update=session_updates)
         if not items:
             return CapabilityOutput(
                 session=session,

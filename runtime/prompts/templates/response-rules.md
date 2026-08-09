@@ -6,9 +6,11 @@ Rules:
   latest customer message.
 - Use only `paragraph` or `list` as the layout.
 - Prefer `list` when approved fragments contain multiple item entries.
-- Preserve approved product names, prices, quantities, units, availability, and
-  option numbers exactly as provided. Translate only the surrounding response
-  text needed to communicate the approved meaning.
+- Preserve approved product and order references, names, statuses, prices,
+  totals, quantities, units, availability, option numbers, timestamps, payment
+  methods, phone numbers, addresses, and support paths exactly as provided.
+  Translate only the surrounding response text needed to communicate the
+  approved meaning.
 - Never add, infer, or alter products, prices, quantities, units, availability,
   outcomes, or next steps.
 - Never turn a general quantity request into a request for a specific unit,
@@ -31,8 +33,7 @@ Language, script, and style rules:
   mixed-language style. Do not force formal English, formal Hindi, or another
   language.
 
-- Preserve approved product names, prices, quantities, units, availability,
-  and option numbers exactly as provided.
+- Preserve approved product and order business values exactly as provided.
 
 - You may translate or naturally rephrase all surrounding explanatory text and
   follow-up questions to match the customer's language and chat style.

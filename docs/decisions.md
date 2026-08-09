@@ -281,3 +281,75 @@ Reason
 A unique order-to-cart link makes retries and concurrent confirmations return
 the same order. Cart uniqueness applies only to `ACTIVE` carts so a conversation
 can complete more than one cart over time.
+
+---
+
+## ADR-019
+
+Use PostgreSQL balances and reservations as inventory authority.
+
+Status
+
+Accepted
+
+Reason
+
+Cart state does not guarantee stock. Locked inventory balances and durable
+per-order reservations prevent concurrent confirmations from overselling and
+allow cancellation or delivery effects to be applied idempotently.
+
+---
+
+## ADR-020
+
+Keep fulfilment rules in a domain service and coordinate persistence with a
+transaction-scoped unit of work.
+
+Status
+
+Accepted
+
+Reason
+
+Order status, reservations, balances, and audit history must change atomically
+without exposing PostgreSQL or framework types to the commerce domain. Staff
+HTTP exposure remains deferred until authenticated authorization exists.
+
+---
+
+## ADR-021
+
+Use conversation-scoped customer order access and checkpointed cancellation
+intent.
+
+Status
+
+Accepted
+
+Reason
+
+Customer authentication is not available, so every customer order read and
+lock includes the trusted conversation ID. Recent-order ordinals and the exact
+pending cancellation target are typed checkpoint state, while PostgreSQL
+remains authoritative. A customer cancellation requires explicit confirmation
+and atomically releases inventory only from `CONFIRMED`.
+
+---
+
+## ADR-022
+
+Use monotonic cart versions and checkpointed clear intent.
+
+Status
+
+Accepted
+
+Reason
+
+Quantity updates and complete-cart clearing mutate the authoritative PostgreSQL
+cart without adding graph nodes. Every effective item mutation increments the
+cart version. A clear request checkpoints the trusted tenant-scoped cart ID and
+reviewed version, and confirmation locks and compares that version before
+deleting items. This prevents stale or repeated conversational confirmation
+from clearing a newer cart while keeping short-term intent out of business
+tables.

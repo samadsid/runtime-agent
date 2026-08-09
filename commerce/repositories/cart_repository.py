@@ -35,6 +35,44 @@ class CartRepository(ABC):
     @abstractmethod
     async def remove_item_by_ordinal(self, cart_id: UUID, ordinal: int) -> Cart: ...
 
+    @abstractmethod
+    async def update_item_quantity_by_ordinal(
+        self,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        ordinal: int,
+        quantity: Decimal,
+    ) -> Cart: ...
 
-class InvalidCartOrdinalError(ValueError):
+    @abstractmethod
+    async def clear_active_cart(
+        self,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        cart_id: UUID,
+        expected_version: int,
+    ) -> Cart: ...
+
+
+class CartNotFoundError(LookupError):
     pass
+
+
+class CartItemOrdinalError(ValueError):
+    pass
+
+
+class InvalidCartQuantityError(ValueError):
+    pass
+
+
+class StaleCartError(RuntimeError):
+    pass
+
+
+class CartPersistenceError(RuntimeError):
+    pass
+
+
+class InvalidCartOrdinalError(CartItemOrdinalError):
+    """Backward-compatible name for existing removal callers."""

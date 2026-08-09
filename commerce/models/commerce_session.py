@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .cart_editing import PendingCartClear
 from .cart_item import CartItem
 from .checkout import CheckoutState
+from .customer_order import OrderSummary, PendingOrderCancellation
 from .product import Product
 
 
@@ -13,4 +15,7 @@ class CommerceSession(BaseModel):
     recent_product_results: tuple[Product, ...] = ()
     selected_product: Product | None = None
     cart_items: tuple[CartItem, ...] = ()
+    pending_cart_clear: PendingCartClear | None = None
     checkout: CheckoutState = Field(default_factory=CheckoutState)
+    recent_order_results: tuple[OrderSummary, ...] = ()
+    pending_order_cancellation: PendingOrderCancellation | None = None

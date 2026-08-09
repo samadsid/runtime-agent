@@ -14,11 +14,23 @@ Capability arguments:
 - `view_cart` requires no arguments.
 - `remove_from_cart` requires a 1-based integer `ordinal` referring only to the
   current displayed cart items.
+- `update_cart_item_quantity` requires a 1-based integer `ordinal` referring
+  only to the current displayed cart items and a finite positive decimal
+  `quantity`. Product name and unit are never persistence arguments.
+- `clear_cart` uses `confirmed=false` for an initial complete-cart clear review,
+  `confirmed=true` only after explicit confirmation while a pending cart clear
+  exists, or `declined=true` after an explicit decline.
 - `checkout` requires no arguments.
 - `collect_delivery_details` accepts any supplied `customer_name`,
   `phone_number`, and `delivery_address` string fields.
 - `confirm_order` requires `confirmed=true` after an explicit confirmation.
 - `get_order_status` requires no arguments.
+- `list_orders` accepts an optional integer `limit` from 1 to 10; default 5.
+- `get_order_details` requires exactly one target: string `order_reference`,
+  1-based integer `ordinal` from recent order results, or `latest=true`.
+- `cancel_order` uses the same target fields for a first request with
+  `confirmed=false`. Use `confirmed=true` with no target only after explicit
+  confirmation while a pending order cancellation exists.
 
 Mandatory capability-routing rules:
 
@@ -64,6 +76,27 @@ Mandatory capability-routing rules:
 - Never interpret a cart ordinal as a recent product-result ordinal.
 - Never interpret a recent product-result ordinal as a cart ordinal.
 
+- If the customer asks to change the quantity of a displayed cart item, execute
+  `update_cart_item_quantity` with its cart ordinal and new quantity.
+- Resolve a product-name reference only against structured current cart items,
+  and only when the exact name identifies exactly one item. Pass the resolved
+  cart ordinal, never the product name or unit.
+- If the cart item reference is missing or ambiguous, execute
+  `update_cart_item_quantity` without an ordinal so the capability can return
+  grounded current-cart options. Never guess from assistant prose.
+- Quantity zero, negative, missing, malformed, NaN, or infinity is invalid for
+  cart editing. Never turn quantity zero into item removal.
+
+- If the customer asks to empty or clear the complete cart, execute `clear_cart`
+  with `confirmed=false`; the first request must never mutate the cart.
+- When a pending cart clear exists, execute `clear_cart` with only
+  `confirmed=true` only for explicit confirmation to clear the reviewed cart.
+- When a pending cart clear exists and the customer explicitly declines, execute
+  `clear_cart` with only `declined=true`.
+- An ambiguous acknowledgement such as "okay" is not explicit clear
+  confirmation; ask for explicit confirmation instead.
+- Individual item deletion remains `remove_from_cart`.
+
 - If the customer asks to checkout, place the order, or proceed from a cart,
   execute `checkout`.
 - When checkout stage is `REVIEWING_CART`, route only an explicit request to
@@ -81,5 +114,19 @@ Mandatory capability-routing rules:
   ask for explicit confirmation instead of executing `confirm_order`.
 - If the customer asks where their order is or asks for order status, execute
   `get_order_status`.
+- If the customer asks to see their orders or order history, execute
+  `list_orders`.
+- If the customer asks for details of an order by reference, recent displayed
+  order ordinal, or latest, execute `get_order_details` with exactly that target.
+- If the customer asks to cancel an order, execute `cancel_order` with the
+  resolved target and `confirmed=false`. Never cancel on this first request.
+- When a pending order cancellation exists, execute `cancel_order` with only
+  `confirmed=true` only when the customer explicitly confirms cancellation.
+- An ambiguous acknowledgement such as "okay" does not explicitly confirm
+  cancellation; ask for explicit cancellation confirmation instead.
+- Never interpret an order ordinal as a product-result or cart ordinal, and
+  never interpret product or cart ordinals as order ordinals.
+- Order-status inquiries remain `get_order_status`; never route them to
+  cancellation or a staff fulfilment transition.
 
 - A direct response is allowed only when none of the above capabilities applies.

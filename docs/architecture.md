@@ -171,9 +171,29 @@ with the session through LangGraph checkpoints for planning context.
 reviewed source cart, collection stage, and delivery details until a customer
 explicitly confirms. It is checkpointed but is never an order.
 
+`CommerceSession.recent_order_results` is the ordered source for customer order
+ordinals. `CommerceSession.pending_order_cancellation` stores the exact durable
+order ID awaiting explicit confirmation. Both values are checkpointed
+interaction state; PostgreSQL orders and reservations remain authoritative.
+
+`CommerceSession.pending_cart_clear` stores the active cart ID and monotonic
+version shown during a clear-cart review. It is checkpointed interaction state,
+not a business record. PostgreSQL remains authoritative for cart items, and a
+confirmation can clear only the exact reviewed cart version.
+
 Confirmed orders and immutable order-item snapshots are authoritative in
 PostgreSQL. Order creation and cart closure occur in one repository transaction;
 the source cart uniquely identifies an idempotent confirmation.
+
+Product inventory balances and order reservations are also authoritative in
+PostgreSQL. Confirmation locks balances and creates reservations in the same
+transaction as the order and cart closure. A framework-independent fulfilment
+service controls order transitions; its PostgreSQL unit of work applies status,
+reservation, balance, and audit-history changes atomically. Staff fulfilment
+does not pass through the customer planner or graph.
+Customer order reads are always scoped by `conversation_id`. Customer
+cancellation uses the fulfilment unit of work but applies the stricter policy
+that only `CONFIRMED` orders may be cancelled.
 
 `CommerceSession` is commerce-specific typed state owned by
 `CommerceGraphState`. It is restored by LangGraph checkpoints using the

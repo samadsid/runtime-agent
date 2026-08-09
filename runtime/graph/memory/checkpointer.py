@@ -13,6 +13,10 @@ from commerce.models import (
     CommerceSession,
     Order,
     OrderItem,
+    OrderStatusHistory,
+    OrderSummary,
+    PendingCartClear,
+    PendingOrderCancellation,
     Product,
 )
 
@@ -35,6 +39,10 @@ class GraphCheckpointer:
                 CartItem,
                 Order,
                 OrderItem,
+                OrderStatusHistory,
+                OrderSummary,
+                PendingCartClear,
+                PendingOrderCancellation,
                 Product,
             )
         )

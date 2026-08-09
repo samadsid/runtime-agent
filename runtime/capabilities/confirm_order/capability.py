@@ -5,7 +5,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from commerce.models import CheckoutStage, CheckoutState, CommerceSession
-from commerce.repositories import CartNotAvailableForCheckoutError
+from commerce.repositories import (
+    CartNotAvailableForCheckoutError,
+    InsufficientStockError,
+)
 from commerce.services import OrderService
 from runtime.capabilities import (
     Capability,
@@ -19,6 +22,7 @@ from runtime.contracts import (
     ExecutionStatus,
     FollowUpRequest,
     GeneratedExecutionOutcome,
+    ResponseFragmentKind,
 )
 
 
@@ -70,7 +74,11 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
             )
         except CartNotAvailableForCheckoutError:
             session = input.session.model_copy(
-                update={"cart_items": (), "checkout": CheckoutState()}
+                update={
+                    "cart_items": (),
+                    "checkout": CheckoutState(),
+                    "pending_cart_clear": None,
+                }
             )
             return CapabilityOutput(
                 session=session,
@@ -88,9 +96,44 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
                     ),
                 ),
             )
-
+        except InsufficientStockError as error:
+            fragments = tuple(
+                ApprovedResponseFragment(
+                    id=f"insufficient-stock-{index}",
+                    text=(
+                        f"{shortage.product_name}: requested "
+                        f"{shortage.requested_quantity} {shortage.unit}; "
+                        f"currently sellable {shortage.sellable_quantity} "
+                        f"{shortage.unit}."
+                    ),
+                    kind=ResponseFragmentKind.ITEM,
+                )
+                for index, shortage in enumerate(error.shortages, start=1)
+            )
+            protected_values = tuple(
+                value
+                for shortage in error.shortages
+                for value in (
+                    shortage.product_name,
+                    str(shortage.requested_quantity),
+                    str(shortage.sellable_quantity),
+                    shortage.unit,
+                )
+            )
+            return CapabilityOutput(
+                session=input.session,
+                outcome=GeneratedExecutionOutcome(
+                    status=ExecutionStatus.FAILURE,
+                    fragments=fragments,
+                    protected_values=protected_values,
+                ),
+            )
         session = input.session.model_copy(
-            update={"cart_items": (), "checkout": CheckoutState()}
+            update={
+                "cart_items": (),
+                "checkout": CheckoutState(),
+                "pending_cart_clear": None,
+            }
         )
         return CapabilityOutput(
             session=session,

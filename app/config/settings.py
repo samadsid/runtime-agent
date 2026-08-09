@@ -1,6 +1,7 @@
 from typing import Literal
 from uuid import UUID
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from infrastructure.database.config import DatabaseConfig
@@ -31,6 +32,7 @@ class Settings(BaseSettings):
 
     DEFAULT_TENANT_ID: UUID
     CHECKPOINTER_BACKEND: Literal["memory", "postgres"]
+    CUSTOMER_SUPPORT_PATH: str = Field(min_length=1)
 
     @property
     def database(self) -> DatabaseConfig:

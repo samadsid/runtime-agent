@@ -10,7 +10,9 @@ from commerce.models import (
     CommerceSession,
     OrderStatus,
     Product,
+    StockShortage,
 )
+from commerce.repositories import InsufficientStockError
 from commerce.services import (
     CartService,
     NonEmptyPhoneValidationPolicy,
@@ -28,9 +30,7 @@ from tests.fakes import InMemoryCartRepository, InMemoryOrderRepository
 
 
 def product(name: str = "Chicken Breast") -> Product:
-    return Product(
-        id=uuid4(), name=name, price=Decimal("320.00"), unit="kg"
-    )
+    return Product(id=uuid4(), name=name, price=Decimal("320.00"), unit="kg")
 
 
 def input_for(
@@ -81,9 +81,7 @@ async def test_delivery_details_ask_only_for_next_missing_field() -> None:
         )
     )
 
-    named = await capability.execute(
-        input_for(session, {"customer_name": " Samad "})
-    )
+    named = await capability.execute(input_for(session, {"customer_name": " Samad "}))
     phoned = await capability.execute(
         input_for(named.session, {"phone_number": "9876543210"})
     )
@@ -138,9 +136,7 @@ async def test_invalid_supplied_detail_asks_for_that_field() -> None:
         )
     )
 
-    output = await capability.execute(
-        input_for(session, {"phone_number": "   "})
-    )
+    output = await capability.execute(input_for(session, {"phone_number": "   "}))
 
     assert output.outcome.status == ExecutionStatus.INVALID_INPUT
     assert output.outcome.follow_up is not None
@@ -154,12 +150,30 @@ async def test_confirmation_requires_complete_ready_checkout() -> None:
     repository = InMemoryOrderRepository(InMemoryCartRepository())
     capability = ConfirmOrderCapability(OrderService(repository))
 
-    output = await capability.execute(
-        input_for(CommerceSession(), {"confirmed": True})
-    )
+    output = await capability.execute(input_for(CommerceSession(), {"confirmed": True}))
 
     assert output.outcome.status == ExecutionStatus.INVALID_INPUT
     assert repository.orders == []
+
+
+@pytest.mark.asyncio
+async def test_confirmation_clears_unavailable_checkout_cart() -> None:
+    repository = InMemoryOrderRepository(InMemoryCartRepository())
+    capability = ConfirmOrderCapability(OrderService(repository))
+    session = CommerceSession(
+        checkout=CheckoutState(
+            stage=CheckoutStage.READY_TO_CONFIRM,
+            source_cart_id=uuid4(),
+            customer_name="Samad",
+            phone_number="9876543210",
+            delivery_address="12 Market Road",
+        )
+    )
+
+    output = await capability.execute(input_for(session, {"confirmed": True}))
+
+    assert output.outcome.status == ExecutionStatus.NOT_FOUND
+    assert output.session.checkout == CheckoutState()
 
 
 @pytest.mark.asyncio
@@ -200,6 +214,50 @@ async def test_confirmation_snapshots_cart_closes_it_and_is_idempotent() -> None
     assert first.items[0].unit_price == Decimal("320.00")
     assert first.items[0].quantity == Decimal("2.5")
     assert await cart_repository.get_active_cart(UUID(int=0), UUID(int=0)) is None
+
+
+@pytest.mark.asyncio
+async def test_confirmation_reports_only_grounded_stock_shortages() -> None:
+    chicken = product()
+
+    class InsufficientService:
+        async def create_confirmed_order_from_cart(self, **kwargs):
+            raise InsufficientStockError(
+                (
+                    StockShortage(
+                        product_id=chicken.id,
+                        product_name=chicken.name,
+                        requested_quantity=Decimal("2.5"),
+                        sellable_quantity=Decimal(1),
+                        unit=chicken.unit,
+                    ),
+                )
+            )
+
+    session = CommerceSession(
+        checkout=CheckoutState(
+            stage=CheckoutStage.READY_TO_CONFIRM,
+            source_cart_id=uuid4(),
+            customer_name="Samad",
+            phone_number="9876543210",
+            delivery_address="12 Market Road",
+        )
+    )
+    capability = ConfirmOrderCapability(InsufficientService())  # type: ignore[arg-type]
+
+    output = await capability.execute(input_for(session, {"confirmed": True}))
+
+    assert output.outcome.status == ExecutionStatus.FAILURE
+    assert output.session == session
+    assert output.outcome.fragments[0].text == (
+        "Chicken Breast: requested 2.5 kg; currently sellable 1 kg."
+    )
+    assert output.outcome.protected_values == (
+        "Chicken Breast",
+        "2.5",
+        "1",
+        "kg",
+    )
 
 
 @pytest.mark.asyncio

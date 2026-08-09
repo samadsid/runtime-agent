@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, ValidationError
 
-from commerce.models import CommerceSession
+from commerce.models import CheckoutState, CommerceSession
 from commerce.repositories import InvalidCartOrdinalError
 from commerce.services import CartService
 from runtime.capabilities import (
@@ -45,9 +45,16 @@ class RemoveFromCartCapability(Capability[CommerceSession]):
         cart = await self._service.get_active(
             input.context.tenant_id, input.context.conversation_id
         )
-        session = input.session.model_copy(
-            update={"cart_items": cart.items if cart is not None else ()}
-        )
+        session_updates: dict[str, object] = {
+            "cart_items": cart.items if cart is not None else ()
+        }
+        pending = input.session.pending_cart_clear
+        if cart is None or (
+            pending is not None
+            and (pending.cart_id != cart.id or pending.cart_version != cart.version)
+        ):
+            session_updates["pending_cart_clear"] = None
+        session = input.session.model_copy(update=session_updates)
         if cart is None or not cart.items:
             return self._empty_cart(session)
 
@@ -76,7 +83,13 @@ class RemoveFromCartCapability(Capability[CommerceSession]):
             )
             return self._invalid_ordinal(session, ExecutionStatus.INVALID_INPUT)
 
-        session = session.model_copy(update={"cart_items": updated_cart.items})
+        session = session.model_copy(
+            update={
+                "cart_items": updated_cart.items,
+                "checkout": CheckoutState(),
+                "pending_cart_clear": None,
+            }
+        )
         return CapabilityOutput(
             session=session,
             outcome=GeneratedExecutionOutcome(

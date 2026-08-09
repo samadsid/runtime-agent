@@ -1,6 +1,8 @@
 from commerce.models import CommerceSession
 from commerce.services import (
     CartService,
+    CustomerOrderService,
+    FulfilmentService,
     NonEmptyPhoneValidationPolicy,
     OrderService,
     SearchProductService,
@@ -8,21 +10,30 @@ from commerce.services import (
 from infrastructure.database import DatabasePool
 from infrastructure.database.repositories import (
     PostgresCartRepository,
+    PostgresFulfilmentUnitOfWork,
+    PostgresInventoryRepository,
     PostgresOrderRepository,
     PostgresProductRepository,
 )
 from runtime.capabilities import CapabilityRegistry
 from runtime.capabilities.add_to_cart import AddToCartCapability
+from runtime.capabilities.cancel_order import CancelOrderCapability
 from runtime.capabilities.checkout import CheckoutCapability
+from runtime.capabilities.clear_cart import ClearCartCapability
 from runtime.capabilities.collect_delivery_details import (
     CollectDeliveryDetailsCapability,
 )
 from runtime.capabilities.confirm_order import ConfirmOrderCapability
+from runtime.capabilities.get_order_details import GetOrderDetailsCapability
 from runtime.capabilities.get_order_status import GetOrderStatusCapability
 from runtime.capabilities.greeting import GreetingCapability
+from runtime.capabilities.list_orders import ListOrdersCapability
 from runtime.capabilities.remove_from_cart import RemoveFromCartCapability
 from runtime.capabilities.search_product import SearchProductCapability
 from runtime.capabilities.select_product import SelectProductCapability
+from runtime.capabilities.update_cart_item_quantity import (
+    UpdateCartItemQuantityCapability,
+)
 from runtime.capabilities.view_cart import ViewCartCapability
 from runtime.domain.commerce_runtime import CommerceRuntime
 from runtime.graph import CommerceGraph
@@ -122,6 +133,9 @@ class ApplicationContainer:
         self.order_repository = PostgresOrderRepository(
             pool=self.database_pool,
         )
+        self.inventory_repository = PostgresInventoryRepository(
+            pool=self.database_pool,
+        )
 
         self.search_product_service = SearchProductService(
             product_repository=self.product_repository,
@@ -129,6 +143,17 @@ class ApplicationContainer:
 
         self.cart_service = CartService(repository=self.cart_repository)
         self.order_service = OrderService(repository=self.order_repository)
+        self.fulfilment_service = FulfilmentService(
+            unit_of_work_factory=lambda: PostgresFulfilmentUnitOfWork(
+                self.database_pool
+            )
+        )
+        self.customer_order_service = CustomerOrderService(
+            repository=self.order_repository,
+            unit_of_work_factory=lambda: PostgresFulfilmentUnitOfWork(
+                self.database_pool
+            ),
+        )
         self.phone_validation_policy = NonEmptyPhoneValidationPolicy()
 
     def _build_prompting(self) -> None:
@@ -176,6 +201,10 @@ class ApplicationContainer:
         self.remove_from_cart_capability = RemoveFromCartCapability(
             service=self.cart_service,
         )
+        self.update_cart_item_quantity_capability = UpdateCartItemQuantityCapability(
+            service=self.cart_service,
+        )
+        self.clear_cart_capability = ClearCartCapability(service=self.cart_service)
         self.checkout_capability = CheckoutCapability(service=self.cart_service)
         self.collect_delivery_details_capability = CollectDeliveryDetailsCapability(
             phone_policy=self.phone_validation_policy,
@@ -186,6 +215,16 @@ class ApplicationContainer:
         self.get_order_status_capability = GetOrderStatusCapability(
             service=self.order_service,
         )
+        self.list_orders_capability = ListOrdersCapability(
+            service=self.customer_order_service,
+        )
+        self.get_order_details_capability = GetOrderDetailsCapability(
+            service=self.customer_order_service,
+        )
+        self.cancel_order_capability = CancelOrderCapability(
+            service=self.customer_order_service,
+            support_path=self.settings.CUSTOMER_SUPPORT_PATH,
+        )
 
         self.capability_registry = CapabilityRegistry[CommerceSession](
             capabilities=[
@@ -195,10 +234,15 @@ class ApplicationContainer:
                 self.add_to_cart_capability,
                 self.view_cart_capability,
                 self.remove_from_cart_capability,
+                self.update_cart_item_quantity_capability,
+                self.clear_cart_capability,
                 self.checkout_capability,
                 self.collect_delivery_details_capability,
                 self.confirm_order_capability,
                 self.get_order_status_capability,
+                self.list_orders_capability,
+                self.get_order_details_capability,
+                self.cancel_order_capability,
             ]
         )
 

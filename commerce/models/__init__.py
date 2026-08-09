@@ -1,8 +1,20 @@
 from .cart import Cart, CartStatus
+from .cart_editing import PendingCartClear
 from .cart_item import CartItem
 from .checkout import CheckoutStage, CheckoutState
 from .commerce_session import CommerceSession
-from .order import Order, OrderItem, OrderStatus, PaymentMethod
+from .customer_order import OrderSummary, PendingOrderCancellation
+from .fulfilment import (
+    FulfilmentActor,
+    FulfilmentActorType,
+)
+from .inventory import (
+    InventoryBalance,
+    InventoryReservation,
+    InventoryReservationStatus,
+    StockShortage,
+)
+from .order import Order, OrderItem, OrderStatus, OrderStatusHistory, PaymentMethod
 from .product import Product
 
 __all__ = [
@@ -12,9 +24,19 @@ __all__ = [
     "CheckoutStage",
     "CheckoutState",
     "CommerceSession",
+    "FulfilmentActor",
+    "FulfilmentActorType",
+    "InventoryBalance",
+    "InventoryReservation",
+    "InventoryReservationStatus",
     "Order",
     "OrderItem",
     "OrderStatus",
+    "OrderStatusHistory",
+    "OrderSummary",
     "PaymentMethod",
+    "PendingCartClear",
+    "PendingOrderCancellation",
     "Product",
+    "StockShortage",
 ]

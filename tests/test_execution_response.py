@@ -280,6 +280,105 @@ async def test_order_response_localizes_without_altering_order_values(
     assert "CONFIRMED" in message
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("customer_message", "llm_response"),
+    [
+        (
+            "Cancel this order",
+            "Order 123e4567-e89b-12d3-a456-426614174000 is CANCELLED.",
+        ),
+        (
+            "mera order cancel kar do",
+            "Order 123e4567-e89b-12d3-a456-426614174000 CANCELLED ho gaya.",
+        ),
+        (
+            "मेरा ऑर्डर कैंसल कर दो",
+            "Order 123e4567-e89b-12d3-a456-426614174000 CANCELLED हो गया।",
+        ),
+    ],
+)
+async def test_cancellation_response_localizes_without_altering_order_values(
+    customer_message: str, llm_response: str
+) -> None:
+    order_id = "123e4567-e89b-12d3-a456-426614174000"
+    outcome = GeneratedExecutionOutcome(
+        status=ExecutionStatus.SUCCESS,
+        fragments=(
+            ApprovedResponseFragment(
+                id="order-cancelled", text=f"Order {order_id} is CANCELLED."
+            ),
+        ),
+        protected_values=(order_id, "CANCELLED"),
+    )
+    provider = StubLLMProvider(
+        result=ResponseComposition(
+            layout=ResponseLayout.PARAGRAPH,
+            fragment_ids=("order-cancelled",),
+            message=llm_response,
+        )
+    )
+
+    message = await response_generator(provider).generate(outcome, customer_message)
+
+    assert message == llm_response
+    assert order_id in message
+    assert "CANCELLED" in message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("customer_message", "llm_response"),
+    [
+        (
+            "Clear my cart",
+            "1. Chicken Breast — 2 kg. Do you explicitly confirm clearing it?",
+        ),
+        (
+            "mera cart clear kar do",
+            "1. Chicken Breast — 2 kg. Pura cart clear karna confirm karte ho?",
+        ),
+        (
+            "मेरा कार्ट खाली कर दो",
+            "1. Chicken Breast — 2 kg। पूरा कार्ट खाली करना confirm करते हैं?",
+        ),
+    ],
+)
+async def test_cart_clear_review_localizes_with_one_question_and_protected_values(
+    customer_message: str, llm_response: str
+) -> None:
+    outcome = GeneratedExecutionOutcome(
+        status=ExecutionStatus.SUCCESS,
+        fragments=(
+            ApprovedResponseFragment(
+                id="clear-cart-item-1",
+                text="1. Chicken Breast — 2 kg",
+                kind=ResponseFragmentKind.ITEM,
+            ),
+        ),
+        follow_up=FollowUpRequest(
+            id="confirm-clear-cart",
+            question="Do you explicitly confirm clearing this entire cart?",
+        ),
+        protected_values=("1", "Chicken Breast", "2", "kg"),
+    )
+    provider = StubLLMProvider(
+        result=ResponseComposition(
+            layout=ResponseLayout.LIST,
+            fragment_ids=("clear-cart-item-1",),
+            follow_up_id="confirm-clear-cart",
+            message=llm_response,
+        )
+    )
+
+    message = await response_generator(provider).generate(outcome, customer_message)
+
+    assert message == llm_response
+    assert message.count("?") == 1
+    for value in outcome.protected_values:
+        assert value in message
+
+
 class FailingCommandHandler:
     async def handle(self, command, session):
         raise RuntimeError("secret database exception")

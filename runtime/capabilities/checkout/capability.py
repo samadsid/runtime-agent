@@ -45,7 +45,11 @@ class CheckoutCapability(Capability[CommerceSession]):
         )
         if cart is None or not cart.items:
             session = input.session.model_copy(
-                update={"cart_items": (), "checkout": CheckoutState()}
+                update={
+                    "cart_items": (),
+                    "checkout": CheckoutState(),
+                    "pending_cart_clear": None,
+                }
             )
             return CapabilityOutput(
                 session=session,
@@ -63,7 +67,13 @@ class CheckoutCapability(Capability[CommerceSession]):
                 ),
             )
 
-        session = input.session.model_copy(update={"cart_items": cart.items})
+        session_updates: dict[str, object] = {"cart_items": cart.items}
+        pending = input.session.pending_cart_clear
+        if pending is not None and (
+            pending.cart_id != cart.id or pending.cart_version != cart.version
+        ):
+            session_updates["pending_cart_clear"] = None
+        session = input.session.model_copy(update=session_updates)
         checkout = session.checkout
         if (
             checkout.source_cart_id == cart.id

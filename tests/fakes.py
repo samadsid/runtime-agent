@@ -8,17 +8,23 @@ from commerce.models import (
     Cart,
     CartItem,
     CartStatus,
+    FulfilmentActor,
     Order,
     OrderItem,
     OrderStatus,
+    OrderStatusHistory,
+    OrderSummary,
     PaymentMethod,
     Product,
 )
 from commerce.repositories import (
+    CartItemOrdinalError,
     CartNotAvailableForCheckoutError,
+    CartNotFoundError,
     CartRepository,
     InvalidCartOrdinalError,
     OrderRepository,
+    StaleCartError,
 )
 
 
@@ -86,9 +92,57 @@ class InMemoryCartRepository(CartRepository):
         if index < 0 or index >= len(cart.items):
             raise InvalidCartOrdinalError
         updated = cart.model_copy(
-            update={"items": cart.items[:index] + cart.items[index + 1 :]}
+            update={
+                "items": cart.items[:index] + cart.items[index + 1 :],
+                "version": cart.version + 1,
+            }
         )
         self.carts[(cart.tenant_id, cart.conversation_id)] = updated
+        return updated
+
+    async def update_item_quantity_by_ordinal(
+        self,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        ordinal: int,
+        quantity: Decimal,
+    ) -> Cart:
+        if self.fail_writes:
+            raise RuntimeError("persistence failed")
+        cart = await self.get_active_cart(tenant_id, conversation_id)
+        if cart is None:
+            raise CartNotFoundError
+        index = ordinal - 1
+        if index < 0 or index >= len(cart.items):
+            raise CartItemOrdinalError
+        if cart.items[index].quantity == quantity:
+            return cart
+        items = list(cart.items)
+        items[index] = items[index].model_copy(update={"quantity": quantity})
+        updated = cart.model_copy(
+            update={"items": tuple(items), "version": cart.version + 1}
+        )
+        self.carts[(tenant_id, conversation_id)] = updated
+        return updated
+
+    async def clear_active_cart(
+        self,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        cart_id: UUID,
+        expected_version: int,
+    ) -> Cart:
+        if self.fail_writes:
+            raise RuntimeError("persistence failed")
+        cart = await self.get_active_cart(tenant_id, conversation_id)
+        if cart is None or cart.id != cart_id:
+            raise CartNotFoundError
+        if cart.version != expected_version:
+            raise StaleCartError
+        updated = cart.model_copy(
+            update={"items": (), "version": cart.version + 1}
+        )
+        self.carts[(tenant_id, conversation_id)] = updated
         return updated
 
     def _replace(self, cart: Cart, product_id: UUID, quantity: Decimal) -> Cart:
@@ -101,7 +155,12 @@ class InMemoryCartRepository(CartRepository):
                 break
         else:
             items.append(item)
-        updated = cart.model_copy(update={"items": tuple(items)})
+        updated = cart.model_copy(
+            update={
+                "items": tuple(items),
+                "version": cart.version + 1,
+            }
+        )
         self.carts[(cart.tenant_id, cart.conversation_id)] = updated
         return updated
 
@@ -110,6 +169,7 @@ class InMemoryOrderRepository(OrderRepository):
     def __init__(self, cart_repository: InMemoryCartRepository) -> None:
         self.cart_repository = cart_repository
         self.orders: list[Order] = []
+        self.history: list[OrderStatusHistory] = []
         self.fail_creation = False
 
     async def create_confirmed_order_from_cart(
@@ -128,7 +188,11 @@ class InMemoryOrderRepository(OrderRepository):
         if self.fail_creation:
             raise RuntimeError("order persistence failed")
         cart = next(
-            (cart for cart in self.cart_repository.carts.values() if cart.id == cart_id),
+            (
+                cart
+                for cart in self.cart_repository.carts.values()
+                if cart.id == cart_id
+            ),
             None,
         )
         if (
@@ -170,8 +234,109 @@ class InMemoryOrderRepository(OrderRepository):
         self.cart_repository.carts[(cart.tenant_id, cart.conversation_id)] = closed
         return order
 
-    async def get_latest_order(self, conversation_id: UUID) -> Order | None:
+    async def list_for_conversation(
+        self, conversation_id: UUID, limit: int
+    ) -> tuple[OrderSummary, ...]:
+        matches = sorted(
+            (
+                order
+                for order in self.orders
+                if order.conversation_id == conversation_id
+            ),
+            key=lambda order: (order.created_at, order.id),
+            reverse=True,
+        )[:limit]
+        return tuple(
+            OrderSummary(
+                order_id=order.id,
+                status=order.status,
+                created_at=order.created_at,
+                item_count=len(order.items),
+                total_amount=sum(
+                    (item.unit_price * item.quantity for item in order.items),
+                    Decimal(0),
+                ),
+            )
+            for order in matches
+        )
+
+    async def get_for_conversation(
+        self,
+        conversation_id: UUID,
+        order_id: UUID,
+        *,
+        for_update: bool = False,
+    ) -> Order | None:
+        order = next(
+            (
+                candidate
+                for candidate in self.orders
+                if candidate.id == order_id
+                and candidate.conversation_id == conversation_id
+            ),
+            None,
+        )
+        if order is None:
+            return None
+        return order.model_copy(
+            update={"status_history": await self.get_status_history(order.id)}
+        )
+
+    async def get_latest_for_conversation(
+        self, conversation_id: UUID
+    ) -> Order | None:
         matches = [
             order for order in self.orders if order.conversation_id == conversation_id
         ]
-        return matches[-1] if matches else None
+        if not matches:
+            return None
+        latest = max(matches, key=lambda order: (order.created_at, order.id))
+        return await self.get_for_conversation(conversation_id, latest.id)
+
+    async def get_latest_order(self, conversation_id: UUID) -> Order | None:
+        return await self.get_latest_for_conversation(conversation_id)
+
+    async def get_by_id(
+        self, order_id: UUID, *, for_update: bool = False
+    ) -> Order | None:
+        return next((order for order in self.orders if order.id == order_id), None)
+
+    async def transition_status(
+        self,
+        order_id: UUID,
+        target_status: OrderStatus,
+        actor: FulfilmentActor,
+        reason: str | None = None,
+    ) -> Order:
+        order = await self.get_by_id(order_id)
+        if order is None:
+            raise LookupError(order_id)
+        if order.status == target_status:
+            return order
+        index = self.orders.index(order)
+        self.history.append(
+            OrderStatusHistory(
+                id=uuid4(),
+                order_id=order_id,
+                from_status=order.status,
+                to_status=target_status,
+                actor_id=actor.actor_id,
+                actor_type=actor.actor_type,
+                reason=reason,
+                created_at=datetime.now(timezone.utc),
+            )
+        )
+        transitioned = order.model_copy(
+            update={"status": target_status}
+        ).model_copy(
+            update={"status_history": await self.get_status_history(order_id)}
+        )
+        self.orders[index] = transitioned
+        return transitioned
+
+    async def get_status_history(
+        self, order_id: UUID
+    ) -> tuple[OrderStatusHistory, ...]:
+        return tuple(
+            row for row in getattr(self, "history", []) if row.order_id == order_id
+        )

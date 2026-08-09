@@ -1,15 +1,20 @@
+from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
 import pytest
 
-from commerce.models import CartItem, CommerceSession, Product
+from commerce.models import CartItem, CommerceSession, PendingCartClear, Product
 from commerce.services import CartService
 from runtime.capabilities import CapabilityRegistry
 from runtime.capabilities.add_to_cart import AddToCartCapability
+from runtime.capabilities.clear_cart import ClearCartCapability
 from runtime.capabilities.remove_from_cart import RemoveFromCartCapability
+from runtime.capabilities.update_cart_item_quantity import (
+    UpdateCartItemQuantityCapability,
+)
 from runtime.capabilities.view_cart import ViewCartCapability
-from runtime.commands import ExecuteCapabilityCommand
+from runtime.commands import ExecuteCapabilityCommand, RespondCommand
 from runtime.contracts import Message
 from runtime.llm import LLMRequest
 from runtime.planner import Planner
@@ -56,6 +61,41 @@ class CartRoutingProvider:
                 capability="remove_from_cart",
                 arguments={"ordinal": 1},
             )
+        if "USER: Chicken Breast 5 kg kar do" in prompt:
+            return PlannerDecision(
+                type=DecisionType.EXECUTE_CAPABILITY,
+                capability="update_cart_item_quantity",
+                arguments={"ordinal": 1, "quantity": 5},
+            )
+        if "USER: isko 2 kg kar do" in prompt:
+            return PlannerDecision(
+                type=DecisionType.EXECUTE_CAPABILITY,
+                capability="update_cart_item_quantity",
+                arguments={"quantity": 2},
+            )
+        if "USER: clear my cart" in prompt:
+            return PlannerDecision(
+                type=DecisionType.EXECUTE_CAPABILITY,
+                capability="clear_cart",
+                arguments={"confirmed": False},
+            )
+        if "USER: yes, clear the entire cart" in prompt:
+            return PlannerDecision(
+                type=DecisionType.EXECUTE_CAPABILITY,
+                capability="clear_cart",
+                arguments={"confirmed": True},
+            )
+        if "USER: okay" in prompt:
+            return PlannerDecision(
+                type=DecisionType.RESPOND,
+                message="Please explicitly confirm whether to clear the reviewed cart.",
+            )
+        if "USER: no, don't clear it" in prompt:
+            return PlannerDecision(
+                type=DecisionType.EXECUTE_CAPABILITY,
+                capability="clear_cart",
+                arguments={"declined": True},
+            )
         raise AssertionError("Unexpected planner scenario")
 
 
@@ -66,6 +106,8 @@ def build_planner(provider: CartRoutingProvider) -> Planner:
             AddToCartCapability(cart_service),
             ViewCartCapability(cart_service),
             RemoveFromCartCapability(cart_service),
+            UpdateCartItemQuantityCapability(cart_service),
+            ClearCartCapability(cart_service),
         )
     )
     prompt_builder = PlannerPromptBuilder(
@@ -89,6 +131,13 @@ def build_planner(provider: CartRoutingProvider) -> Planner:
         ("2 kg", "add_to_cart", {"quantity": 2}),
         ("show my cart", "view_cart", {}),
         ("remove 1", "remove_from_cart", {"ordinal": 1}),
+        (
+            "Chicken Breast 5 kg kar do",
+            "update_cart_item_quantity",
+            {"ordinal": 1, "quantity": 5},
+        ),
+        ("isko 2 kg kar do", "update_cart_item_quantity", {"quantity": 2}),
+        ("clear my cart", "clear_cart", {"confirmed": False}),
     ],
 )
 async def test_planner_routes_cart_intents(
@@ -124,5 +173,72 @@ def test_cart_capability_guidance_keeps_ordinal_namespaces_separate() -> None:
     assert "add_to_cart" in commerce_prompt
     assert "view_cart" in commerce_prompt
     assert "remove_from_cart" in commerce_prompt
+    assert "update_cart_item_quantity" in commerce_prompt
+    assert "clear_cart" in commerce_prompt
+    assert "exact name identifies exactly one item" in commerce_prompt
+    assert "Quantity zero" in commerce_prompt
     assert "Never interpret a cart ordinal" in commerce_prompt
     assert "separate namespaces" in rules_prompt
+
+
+@pytest.mark.asyncio
+async def test_planner_receives_structured_pending_clear_for_confirmation() -> None:
+    chicken = product("Chicken Breast")
+    pending = PendingCartClear(
+        cart_id=uuid4(),
+        cart_version=3,
+        requested_at=datetime.now(timezone.utc),
+    )
+    provider = CartRoutingProvider()
+
+    response = await build_planner(provider).plan(
+        [Message.user("yes, clear the entire cart")],
+        CommerceSession(
+            cart_items=(CartItem(product=chicken, quantity=Decimal(1)),),
+            pending_cart_clear=pending,
+        ),
+    )
+
+    assert isinstance(response.command, ExecuteCapabilityCommand)
+    assert response.command.capability == "clear_cart"
+    assert response.command.arguments == {"confirmed": True}
+    prompt = provider.requests[0].messages[-1].content
+    assert "Pending cart clear:\nPresent." in prompt
+    assert f"Reviewed cart version: {pending.cart_version}" in prompt
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_acknowledgement_does_not_confirm_cart_clear() -> None:
+    pending = PendingCartClear(
+        cart_id=uuid4(),
+        cart_version=2,
+        requested_at=datetime.now(timezone.utc),
+    )
+    provider = CartRoutingProvider()
+
+    response = await build_planner(provider).plan(
+        [Message.user("okay")],
+        CommerceSession(pending_cart_clear=pending),
+    )
+
+    assert isinstance(response.command, RespondCommand)
+    assert "explicitly confirm" in response.command.message
+
+
+@pytest.mark.asyncio
+async def test_planner_routes_explicit_cart_clear_decline() -> None:
+    pending = PendingCartClear(
+        cart_id=uuid4(),
+        cart_version=2,
+        requested_at=datetime.now(timezone.utc),
+    )
+    provider = CartRoutingProvider()
+
+    response = await build_planner(provider).plan(
+        [Message.user("no, don't clear it")],
+        CommerceSession(pending_cart_clear=pending),
+    )
+
+    assert isinstance(response.command, ExecuteCapabilityCommand)
+    assert response.command.capability == "clear_cart"
+    assert response.command.arguments == {"declined": True}

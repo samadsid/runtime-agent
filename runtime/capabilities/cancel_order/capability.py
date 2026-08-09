@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime, timezone
+from decimal import Decimal
+
+from commerce.models import CommerceSession, OrderStatus, PendingOrderCancellation
+from commerce.repositories import CustomerCancellationNotAllowedError
+from commerce.services import CustomerOrderService
+from runtime.capabilities import (
+    Capability,
+    CapabilityInput,
+    CapabilityMetadata,
+    CapabilityName,
+    CapabilityOutput,
+)
+from runtime.capabilities.order_support import (
+    format_amount,
+    resolve_order_target,
+    target_error_outcome,
+)
+from runtime.contracts import (
+    ApprovedResponseFragment,
+    ExecutionStatus,
+    FollowUpRequest,
+    GeneratedExecutionOutcome,
+)
+
+
+class CancelOrderCapability(Capability[CommerceSession]):
+    def __init__(
+        self,
+        service: CustomerOrderService,
+        support_path: str,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._service = service
+        self._support_path = support_path
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+
+    @property
+    def metadata(self) -> CapabilityMetadata:
+        return CapabilityMetadata(
+            name=CapabilityName.CANCEL_ORDER,
+            description="Reviews and explicitly confirms customer order cancellation.",
+        )
+
+    async def execute(
+        self, input: CapabilityInput[CommerceSession]
+    ) -> CapabilityOutput[CommerceSession]:
+        if input.data.get("confirmed") is True:
+            return await self._confirm(input)
+
+        session = input.session.model_copy(
+            update={"pending_order_cancellation": None}
+        )
+        try:
+            order = await resolve_order_target(
+                input.data, session, self._service, input.context.conversation_id
+            )
+        except (ValueError, LookupError) as error:
+            return CapabilityOutput(
+                session=session, outcome=target_error_outcome(error, session)
+            )
+
+        if order.status == OrderStatus.CANCELLED:
+            return CapabilityOutput(
+                session=session,
+                outcome=self._cancelled_outcome(order.id, already=True),
+            )
+        if order.status != OrderStatus.CONFIRMED:
+            return CapabilityOutput(
+                session=session,
+                outcome=self._denied_outcome(order.id, order.status),
+            )
+
+        total = sum(
+            (item.unit_price * item.quantity for item in order.items),
+            start=Decimal(0),
+        )
+        session = session.model_copy(
+            update={
+                "pending_order_cancellation": PendingOrderCancellation(
+                    order_id=order.id, requested_at=self._clock()
+                )
+            }
+        )
+        return CapabilityOutput(
+            session=session,
+            outcome=GeneratedExecutionOutcome(
+                status=ExecutionStatus.SUCCESS,
+                fragments=(
+                    ApprovedResponseFragment(
+                        id="cancellation-review",
+                        text=(
+                            f"Cancel Order {order.id} | Status {order.status.value} | "
+                            f"Items {len(order.items)} | Total {format_amount(total)}"
+                        ),
+                    ),
+                ),
+                follow_up=FollowUpRequest(
+                    id="confirm-order-cancellation",
+                    question="Do you explicitly confirm cancelling this order?",
+                ),
+                protected_values=(
+                    str(order.id),
+                    order.status.value,
+                    str(len(order.items)),
+                    format_amount(total),
+                ),
+            ),
+        )
+
+    async def _confirm(
+        self, input: CapabilityInput[CommerceSession]
+    ) -> CapabilityOutput[CommerceSession]:
+        pending = input.session.pending_order_cancellation
+        if pending is None:
+            return CapabilityOutput(
+                session=input.session,
+                outcome=GeneratedExecutionOutcome(
+                    status=ExecutionStatus.MISSING_INPUT,
+                    fragments=(
+                        ApprovedResponseFragment(
+                            id="cancellation-not-pending",
+                            text="There is no order awaiting cancellation confirmation.",
+                        ),
+                    ),
+                    follow_up=FollowUpRequest(
+                        id="choose-order-to-cancel",
+                        question="Which order would you like to cancel?",
+                    ),
+                ),
+            )
+
+        try:
+            current = await self._service.get_order_details(
+                input.context.conversation_id, pending.order_id
+            )
+            already = current.status == OrderStatus.CANCELLED
+            order = await self._service.cancel_confirmed_order(
+                input.context.conversation_id, pending.order_id
+            )
+        except CustomerCancellationNotAllowedError as error:
+            return CapabilityOutput(
+                session=input.session,
+                outcome=self._denied_outcome(pending.order_id, error.status),
+            )
+        except LookupError as error:
+            return CapabilityOutput(
+                session=input.session,
+                outcome=target_error_outcome(error, input.session),
+            )
+
+        session = input.session.model_copy(
+            update={"pending_order_cancellation": None}
+        )
+        return CapabilityOutput(
+            session=session,
+            outcome=self._cancelled_outcome(order.id, already=already),
+        )
+
+    def _denied_outcome(
+        self, order_id, status: OrderStatus
+    ) -> GeneratedExecutionOutcome:
+        return GeneratedExecutionOutcome(
+            status=ExecutionStatus.FAILURE,
+            fragments=(
+                ApprovedResponseFragment(
+                    id="cancellation-denied",
+                    text=(
+                        f"Order {order_id} is {status.value}. Self-service cancellation "
+                        f"is no longer available. Contact {self._support_path}."
+                    ),
+                ),
+            ),
+            protected_values=(str(order_id), status.value, self._support_path),
+        )
+
+    @staticmethod
+    def _cancelled_outcome(order_id, *, already: bool) -> GeneratedExecutionOutcome:
+        text = (
+            f"Order {order_id} was already CANCELLED."
+            if already
+            else f"Order {order_id} is CANCELLED and its inventory was released."
+        )
+        return GeneratedExecutionOutcome(
+            status=ExecutionStatus.SUCCESS,
+            fragments=(
+                ApprovedResponseFragment(id="order-cancelled", text=text),
+            ),
+            protected_values=(str(order_id), OrderStatus.CANCELLED.value),
+        )

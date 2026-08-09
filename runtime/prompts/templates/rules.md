@@ -29,3 +29,18 @@ Cart-reference rules:
 - Cart ordinals refer only to the ordered cart items in commerce session state.
 - Product-result ordinals and cart ordinals are separate namespaces.
 - Use the customer's cart-related intent to determine which ordinal namespace applies.
+- Resolve a cart product name only from structured current cart items and only
+  when one exact match exists.
+- Quantity updates require a positive finite quantity; zero is not removal.
+- A complete-cart clear requires a structured pending review followed by
+  explicit confirmation. Never infer the reviewed cart from conversation text.
+- An explicit clear decline removes the pending interaction state without
+  changing persisted cart items.
+
+Order-reference rules:
+
+- Order ordinals refer only to recent order results in commerce session state.
+- Product-result, cart, and order ordinals are separate namespaces.
+- Never infer an order identity from assistant text.
+- A first cancellation request only starts a confirmation review.
+- Only an explicit cancellation confirmation can use structured pending order state.

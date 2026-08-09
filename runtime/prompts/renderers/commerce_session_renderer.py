@@ -33,6 +33,18 @@ class CommerceSessionRenderer:
         else:
             lines.append("None.")
 
+        lines.append("Pending cart clear:")
+        if session.pending_cart_clear is None:
+            lines.append("None.")
+        else:
+            lines.append("Present.")
+            lines.append(
+                f"Reviewed cart ID: {session.pending_cart_clear.cart_id}"
+            )
+            lines.append(
+                f"Reviewed cart version: {session.pending_cart_clear.cart_version}"
+            )
+
         checkout = session.checkout
         lines.append("Checkout state:")
         lines.append(f"Stage: {checkout.stage.value}")
@@ -55,6 +67,22 @@ class CommerceSessionRenderer:
             "Delivery address: provided"
             if checkout.delivery_address is not None
             else "Delivery address: missing"
+        )
+
+        lines.append("Recent order results:")
+        if session.recent_order_results:
+            for ordinal, order in enumerate(session.recent_order_results, start=1):
+                lines.append(
+                    f"{ordinal}. Order {order.order_id} — {order.status.value}"
+                )
+        else:
+            lines.append("None.")
+
+        lines.append("Pending order cancellation:")
+        lines.append(
+            "Present."
+            if session.pending_order_cancellation is not None
+            else "None."
         )
 
         return "\n".join(lines)

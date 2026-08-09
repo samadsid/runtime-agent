@@ -6,7 +6,13 @@ from uuid import UUID, uuid4
 import asyncpg
 
 from commerce.models import Cart, CartItem, CartStatus, Product
-from commerce.repositories import CartRepository, InvalidCartOrdinalError
+from commerce.repositories import (
+    CartItemOrdinalError,
+    CartNotFoundError,
+    CartRepository,
+    InvalidCartOrdinalError,
+    StaleCartError,
+)
 from infrastructure.database import DatabasePool
 
 
@@ -33,7 +39,14 @@ class PostgresCartRepository(CartRepository):
             self._pool.pool.acquire() as connection,
             connection.transaction(),
         ):
+            exists = await connection.fetchval(
+                "SELECT id FROM carts WHERE id = $1 AND status = 'ACTIVE' FOR UPDATE",
+                cart_id,
+            )
+            if exists is None:
+                raise CartNotFoundError("Active cart no longer exists.")
             await self._upsert_item(connection, cart_id, product_id, quantity)
+            await self._increment_version(connection, cart_id)
             return await self._load_cart(connection, cart_id)
 
     async def get_or_create_active_cart_and_add_or_replace_item(
@@ -51,6 +64,7 @@ class PostgresCartRepository(CartRepository):
                 connection, tenant_id, conversation_id
             )
             await self._upsert_item(connection, cart_id, product_id, quantity)
+            await self._increment_version(connection, cart_id)
             return await self._load_cart(connection, cart_id)
 
     async def get_active_cart(
@@ -78,7 +92,13 @@ class PostgresCartRepository(CartRepository):
             connection.transaction(),
         ):
             exists = await connection.fetchval(
-                "SELECT id FROM carts WHERE id = $1 FOR UPDATE", cart_id
+                """
+                SELECT id
+                FROM carts
+                WHERE id = $1 AND status = 'ACTIVE'
+                FOR UPDATE
+                """,
+                cart_id,
             )
             if exists is None:
                 raise InvalidCartOrdinalError("Active cart no longer exists.")
@@ -99,9 +119,95 @@ class PostgresCartRepository(CartRepository):
                     "Cart ordinal does not identify an item."
                 )
             await connection.execute("DELETE FROM cart_items WHERE id = $1", item_id)
-            await connection.execute(
-                "UPDATE carts SET updated_at = now() WHERE id = $1", cart_id
+            await self._increment_version(connection, cart_id)
+            return await self._load_cart(connection, cart_id)
+
+    async def update_item_quantity_by_ordinal(
+        self,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        ordinal: int,
+        quantity: Decimal,
+    ) -> Cart:
+        async with (
+            self._pool.pool.acquire() as connection,
+            connection.transaction(),
+        ):
+            cart_id = await connection.fetchval(
+                """
+                SELECT id
+                FROM carts
+                WHERE tenant_id = $1
+                  AND conversation_id = $2
+                  AND status = 'ACTIVE'
+                FOR UPDATE
+                """,
+                tenant_id,
+                conversation_id,
             )
+            if cart_id is None:
+                raise CartNotFoundError("Active cart no longer exists.")
+
+            item = await connection.fetchrow(
+                """
+                SELECT id, quantity
+                FROM cart_items
+                WHERE cart_id = $1
+                ORDER BY created_at, id
+                OFFSET $2 LIMIT 1
+                """,
+                cart_id,
+                ordinal - 1,
+            )
+            if item is None:
+                raise CartItemOrdinalError(
+                    "Cart ordinal does not identify an item."
+                )
+            if item["quantity"] == quantity:
+                return await self._load_cart(connection, cart_id)
+
+            await connection.execute(
+                "UPDATE cart_items SET quantity = $1, updated_at = now() WHERE id = $2",
+                quantity,
+                item["id"],
+            )
+            await self._increment_version(connection, cart_id)
+            return await self._load_cart(connection, cart_id)
+
+    async def clear_active_cart(
+        self,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        cart_id: UUID,
+        expected_version: int,
+    ) -> Cart:
+        async with (
+            self._pool.pool.acquire() as connection,
+            connection.transaction(),
+        ):
+            current_version = await connection.fetchval(
+                """
+                SELECT version
+                FROM carts
+                WHERE id = $1
+                  AND tenant_id = $2
+                  AND conversation_id = $3
+                  AND status = 'ACTIVE'
+                FOR UPDATE
+                """,
+                cart_id,
+                tenant_id,
+                conversation_id,
+            )
+            if current_version is None:
+                raise CartNotFoundError("Reviewed active cart no longer exists.")
+            if current_version != expected_version:
+                raise StaleCartError("The cart changed after it was reviewed.")
+
+            await connection.execute(
+                "DELETE FROM cart_items WHERE cart_id = $1", cart_id
+            )
+            await self._increment_version(connection, cart_id)
             return await self._load_cart(connection, cart_id)
 
     @staticmethod
@@ -148,15 +254,25 @@ class PostgresCartRepository(CartRepository):
             product_id,
             quantity,
         )
+
+    @staticmethod
+    async def _increment_version(
+        connection: asyncpg.Connection, cart_id: UUID
+    ) -> None:
         await connection.execute(
-            "UPDATE carts SET updated_at = now() WHERE id = $1", cart_id
+            """
+            UPDATE carts
+            SET version = version + 1, updated_at = now()
+            WHERE id = $1
+            """,
+            cart_id,
         )
 
     @staticmethod
     async def _load_cart(connection: asyncpg.Connection, cart_id: UUID) -> Cart:
         cart_row = await connection.fetchrow(
             """
-            SELECT id, tenant_id, conversation_id, status
+            SELECT id, tenant_id, conversation_id, status, version
             FROM carts
             WHERE id = $1
             """,
@@ -180,6 +296,7 @@ class PostgresCartRepository(CartRepository):
             tenant_id=cart_row["tenant_id"],
             conversation_id=cart_row["conversation_id"],
             status=CartStatus(cart_row["status"]),
+            version=cart_row["version"],
             items=tuple(
                 CartItem(
                     product=Product(
