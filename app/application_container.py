@@ -1,9 +1,24 @@
 from commerce.models import CommerceSession
-from commerce.services import CartService, SearchProductService
+from commerce.services import (
+    CartService,
+    NonEmptyPhoneValidationPolicy,
+    OrderService,
+    SearchProductService,
+)
 from infrastructure.database import DatabasePool
-from infrastructure.database.repositories import PostgresProductRepository
+from infrastructure.database.repositories import (
+    PostgresCartRepository,
+    PostgresOrderRepository,
+    PostgresProductRepository,
+)
 from runtime.capabilities import CapabilityRegistry
 from runtime.capabilities.add_to_cart import AddToCartCapability
+from runtime.capabilities.checkout import CheckoutCapability
+from runtime.capabilities.collect_delivery_details import (
+    CollectDeliveryDetailsCapability,
+)
+from runtime.capabilities.confirm_order import ConfirmOrderCapability
+from runtime.capabilities.get_order_status import GetOrderStatusCapability
 from runtime.capabilities.greeting import GreetingCapability
 from runtime.capabilities.remove_from_cart import RemoveFromCartCapability
 from runtime.capabilities.search_product import SearchProductCapability
@@ -22,9 +37,7 @@ from runtime.handlers import (
     RespondHandler,
     WaitHandler,
 )
-from runtime.llm.ollama_provider import OllamaProvider
 from runtime.llm.gemini_provider import GeminiProvider
-
 from runtime.planner import Planner
 from runtime.prompts import (
     PlannerPromptBuilder,
@@ -60,18 +73,29 @@ class ApplicationContainer:
 
         self._build_handlers()
 
-        self._build_runtime()
+        self.graph_checkpointer = GraphCheckpointer(
+            backend=self.settings.CHECKPOINTER_BACKEND,
+            postgres_dsn=self.settings.database.dsn,
+        )
 
     async def startup(self) -> None:
         """
         Start application infrastructure.
         """
         await self.database_pool.connect()
+        try:
+            await self.graph_checkpointer.start()
+            self._build_runtime()
+        except Exception:
+            await self.graph_checkpointer.close()
+            await self.database_pool.close()
+            raise
 
     async def shutdown(self) -> None:
         """
         Shutdown application infrastructure.
         """
+        await self.graph_checkpointer.close()
         await self.database_pool.close()
 
     def _build_infrastructure(self) -> None:
@@ -92,11 +116,20 @@ class ApplicationContainer:
             pool=self.database_pool,
         )
 
+        self.cart_repository = PostgresCartRepository(
+            pool=self.database_pool,
+        )
+        self.order_repository = PostgresOrderRepository(
+            pool=self.database_pool,
+        )
+
         self.search_product_service = SearchProductService(
             product_repository=self.product_repository,
         )
 
-        self.cart_service = CartService()
+        self.cart_service = CartService(repository=self.cart_repository)
+        self.order_service = OrderService(repository=self.order_repository)
+        self.phone_validation_policy = NonEmptyPhoneValidationPolicy()
 
     def _build_prompting(self) -> None:
 
@@ -138,10 +171,20 @@ class ApplicationContainer:
             service=self.cart_service,
         )
 
-        self.view_cart_capability = ViewCartCapability()
+        self.view_cart_capability = ViewCartCapability(service=self.cart_service)
 
         self.remove_from_cart_capability = RemoveFromCartCapability(
             service=self.cart_service,
+        )
+        self.checkout_capability = CheckoutCapability(service=self.cart_service)
+        self.collect_delivery_details_capability = CollectDeliveryDetailsCapability(
+            phone_policy=self.phone_validation_policy,
+        )
+        self.confirm_order_capability = ConfirmOrderCapability(
+            service=self.order_service,
+        )
+        self.get_order_status_capability = GetOrderStatusCapability(
+            service=self.order_service,
         )
 
         self.capability_registry = CapabilityRegistry[CommerceSession](
@@ -152,6 +195,10 @@ class ApplicationContainer:
                 self.add_to_cart_capability,
                 self.view_cart_capability,
                 self.remove_from_cart_capability,
+                self.checkout_capability,
+                self.collect_delivery_details_capability,
+                self.confirm_order_capability,
+                self.get_order_status_capability,
             ]
         )
 
@@ -175,11 +222,12 @@ class ApplicationContainer:
 
         self.message_adapter = LangChainMessageAdapter()
 
-        self.graph_state_adapter = ConversationStateAdapter(self.message_adapter)
+        self.graph_state_adapter = ConversationStateAdapter(
+            self.message_adapter,
+            tenant_id=self.settings.DEFAULT_TENANT_ID,
+        )
 
         self.llm_provider = GeminiProvider()
-        # self.llm_provider = OllamaProvider()
-        GeminiProvider
 
         self.planner = Planner(
             prompt_builder=self.planner_prompt_builder,
@@ -190,8 +238,6 @@ class ApplicationContainer:
             prompt_builder=self.response_prompt_builder,
             llm_provider=self.llm_provider,
         )
-
-        self.graph_checkpointer = GraphCheckpointer()
 
         self.memory_manager = MemoryManager(
             checkpointer=self.graph_checkpointer,

@@ -85,6 +85,7 @@ class SelectProductCapability(Capability[CommerceSession]):
                     id="quantity-request",
                     question="Please specify the quantity you would like to order.",
                 ),
+                protected_values=(product.name,),
             ),
         )
 
@@ -107,6 +108,7 @@ class SelectProductCapability(Capability[CommerceSession]):
                     question="Which product number would you like to select?",
                     options=SelectProductCapability._options(session),
                 ),
+                protected_values=SelectProductCapability._protected_options(session),
             ),
         )
 
@@ -129,6 +131,7 @@ class SelectProductCapability(Capability[CommerceSession]):
                     question="Which available product number would you like to select?",
                     options=SelectProductCapability._options(session),
                 ),
+                protected_values=SelectProductCapability._protected_options(session),
             ),
         )
 
@@ -143,4 +146,12 @@ class SelectProductCapability(Capability[CommerceSession]):
                 session.recent_product_results,
                 start=1,
             )
+        )
+
+    @staticmethod
+    def _protected_options(session: CommerceSession) -> tuple[str, ...]:
+        return tuple(
+            value
+            for ordinal, product in enumerate(session.recent_product_results, start=1)
+            for value in (str(ordinal), product.name)
         )

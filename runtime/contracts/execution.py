@@ -64,6 +64,7 @@ class GeneratedExecutionOutcome(BaseModel):
     status: ExecutionStatus
     fragments: tuple[ApprovedResponseFragment, ...] = ()
     follow_up: FollowUpRequest | None = None
+    protected_values: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def validate_presentation_data(self) -> GeneratedExecutionOutcome:

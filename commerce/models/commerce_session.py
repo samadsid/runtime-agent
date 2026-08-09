@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .cart_item import CartItem
+from .checkout import CheckoutState
 from .product import Product
 
 
@@ -12,3 +13,4 @@ class CommerceSession(BaseModel):
     recent_product_results: tuple[Product, ...] = ()
     selected_product: Product | None = None
     cart_items: tuple[CartItem, ...] = ()
+    checkout: CheckoutState = Field(default_factory=CheckoutState)

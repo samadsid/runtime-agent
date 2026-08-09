@@ -1,3 +1,6 @@
+from typing import Literal
+from uuid import UUID
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from infrastructure.database.config import DatabaseConfig
@@ -9,21 +12,25 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Ollama
-    OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "qwen3:8b"
-    LLM_TEMPERATURE: float = 0.2
-    LLM_MAX_TOKENS: int = 1024
-    
-    GEMINI_API_KEY: str = "AIzaSyA7_TydNkgfryQeeP74KnhsfMfMoy8wGmc"
-    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
+    LLM_PROVIDER: Literal["ollama", "gemini"]
 
-    # PostgreSQL
-    POSTGRES_HOST: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_DB: str = "commerce"
-    POSTGRES_USER: str = "postgres"
-    POSTGRES_PASSWORD: str = "postgres"
+    OLLAMA_BASE_URL: str
+    OLLAMA_MODEL: str
+
+    GEMINI_API_KEY: str
+    GEMINI_MODEL: str
+
+    LLM_TEMPERATURE: float
+    LLM_MAX_TOKENS: int
+
+    POSTGRES_HOST: str
+    POSTGRES_PORT: int
+    POSTGRES_DB: str
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
+
+    DEFAULT_TENANT_ID: UUID
+    CHECKPOINTER_BACKEND: Literal["memory", "postgres"]
 
     @property
     def database(self) -> DatabaseConfig:

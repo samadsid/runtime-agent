@@ -10,6 +10,13 @@ from runtime.capabilities.add_to_cart import AddToCartCapability
 from runtime.capabilities.remove_from_cart import RemoveFromCartCapability
 from runtime.capabilities.view_cart import ViewCartCapability
 from runtime.contracts import ExecutionStatus, ResponseFragmentKind
+from tests.fakes import InMemoryCartRepository
+
+
+def cart_service(
+    products: tuple[Product, ...] = (), items: tuple[CartItem, ...] = ()
+) -> CartService:
+    return CartService(InMemoryCartRepository(products=products, items=items))
 
 
 def product(name: str, unit: str = "kg") -> Product:
@@ -27,7 +34,7 @@ async def test_add_to_cart_adds_selected_product_with_valid_quantity(quantity) -
     chicken = product("Chicken Breast")
     session = CommerceSession(selected_product=chicken)
 
-    output = await AddToCartCapability(CartService()).execute(
+    output = await AddToCartCapability(cart_service((chicken,))).execute(
         CapabilityInput[CommerceSession](
             data={"quantity": quantity},
             session=session,
@@ -35,7 +42,8 @@ async def test_add_to_cart_adds_selected_product_with_valid_quantity(quantity) -
     )
 
     assert output.outcome.status == ExecutionStatus.SUCCESS
-    assert output.outcome.follow_up is None
+    assert output.outcome.follow_up is not None
+    assert output.outcome.follow_up.id == "confirm-cart-order"
     assert output.session.cart_items[0].product == chicken
     assert output.session.cart_items[0].quantity == Decimal(str(quantity))
     assert chicken.name in output.outcome.fragments[0].text
@@ -54,7 +62,7 @@ async def test_add_to_cart_replaces_existing_quantity_without_reordering() -> No
         ),
     )
 
-    output = await AddToCartCapability(CartService()).execute(
+    output = await AddToCartCapability(cart_service(items=session.cart_items)).execute(
         CapabilityInput[CommerceSession](
             data={"quantity": "4"},
             session=session,
@@ -71,11 +79,11 @@ async def test_add_to_cart_without_selected_product_offers_recent_results() -> N
     chicken = product("Chicken Breast")
     session = CommerceSession(recent_product_results=(chicken,))
 
-    output = await AddToCartCapability(CartService()).execute(
+    output = await AddToCartCapability(cart_service()).execute(
         CapabilityInput[CommerceSession](data={"quantity": 2}, session=session)
     )
 
-    assert output.session is session
+    assert output.session == session
     assert output.outcome.status == ExecutionStatus.MISSING_INPUT
     assert output.outcome.follow_up is not None
     assert tuple(option.label for option in output.outcome.follow_up.options) == (
@@ -87,11 +95,11 @@ async def test_add_to_cart_without_selected_product_offers_recent_results() -> N
 async def test_add_to_cart_without_product_context_requests_search() -> None:
     session = CommerceSession()
 
-    output = await AddToCartCapability(CartService()).execute(
+    output = await AddToCartCapability(cart_service()).execute(
         CapabilityInput[CommerceSession](data={"quantity": 2}, session=session)
     )
 
-    assert output.session is session
+    assert output.session == session
     assert output.outcome.status == ExecutionStatus.MISSING_INPUT
     assert output.outcome.follow_up is not None
     assert output.outcome.follow_up.options == ()
@@ -103,11 +111,11 @@ async def test_add_to_cart_rejects_missing_quantity_without_mutation() -> None:
     chicken = product("Chicken")
     session = CommerceSession(selected_product=chicken)
 
-    output = await AddToCartCapability(CartService()).execute(
+    output = await AddToCartCapability(cart_service()).execute(
         CapabilityInput[CommerceSession](data={}, session=session)
     )
 
-    assert output.session is session
+    assert output.session == session
     assert output.outcome.status == ExecutionStatus.MISSING_INPUT
     assert output.outcome.follow_up is not None
 
@@ -122,14 +130,14 @@ async def test_add_to_cart_rejects_invalid_quantity_without_mutation(quantity) -
     existing = CartItem(product=chicken, quantity=Decimal(1))
     session = CommerceSession(selected_product=chicken, cart_items=(existing,))
 
-    output = await AddToCartCapability(CartService()).execute(
+    output = await AddToCartCapability(cart_service()).execute(
         CapabilityInput[CommerceSession](
             data={"quantity": quantity},
             session=session,
         )
     )
 
-    assert output.session is session
+    assert output.session == session
     assert output.outcome.status == ExecutionStatus.INVALID_INPUT
     assert output.outcome.follow_up is not None
     assert output.session.cart_items == (existing,)
@@ -139,11 +147,11 @@ async def test_add_to_cart_rejects_invalid_quantity_without_mutation(quantity) -
 async def test_view_cart_returns_empty_cart_follow_up() -> None:
     session = CommerceSession()
 
-    output = await ViewCartCapability().execute(
+    output = await ViewCartCapability(cart_service()).execute(
         CapabilityInput[CommerceSession](session=session)
     )
 
-    assert output.session is session
+    assert output.session == session
     assert output.outcome.status == ExecutionStatus.NOT_FOUND
     assert output.outcome.follow_up is not None
     assert output.outcome.fragments[0].text == "Your cart is empty."
@@ -160,7 +168,7 @@ async def test_view_cart_returns_ordered_items_without_prices_or_totals() -> Non
         )
     )
 
-    output = await ViewCartCapability().execute(
+    output = await ViewCartCapability(cart_service(items=session.cart_items)).execute(
         CapabilityInput[CommerceSession](session=session)
     )
 
@@ -187,7 +195,7 @@ async def test_remove_from_cart_removes_valid_ordinal_only() -> None:
         ),
     )
 
-    output = await RemoveFromCartCapability(CartService()).execute(
+    output = await RemoveFromCartCapability(cart_service(items=session.cart_items)).execute(
         CapabilityInput[CommerceSession](data={"ordinal": 1}, session=session)
     )
 
@@ -218,11 +226,11 @@ async def test_remove_from_cart_rejects_missing_or_invalid_ordinal(
         cart_items=(CartItem(product=chicken, quantity=Decimal(2)),)
     )
 
-    output = await RemoveFromCartCapability(CartService()).execute(
+    output = await RemoveFromCartCapability(cart_service(items=session.cart_items)).execute(
         CapabilityInput[CommerceSession](data=arguments, session=session)
     )
 
-    assert output.session is session
+    assert output.session == session
     assert output.outcome.status == status
     assert output.outcome.follow_up is not None
     assert tuple(option.label for option in output.outcome.follow_up.options) == (
@@ -234,11 +242,27 @@ async def test_remove_from_cart_rejects_missing_or_invalid_ordinal(
 async def test_remove_from_empty_cart_requests_product_search() -> None:
     session = CommerceSession()
 
-    output = await RemoveFromCartCapability(CartService()).execute(
+    output = await RemoveFromCartCapability(cart_service()).execute(
         CapabilityInput[CommerceSession](data={"ordinal": 1}, session=session)
     )
 
-    assert output.session is session
+    assert output.session == session
     assert output.outcome.status == ExecutionStatus.NOT_FOUND
     assert output.outcome.follow_up is not None
     assert "search" in output.outcome.follow_up.question.lower()
+
+
+@pytest.mark.asyncio
+async def test_add_to_cart_does_not_return_success_when_persistence_fails() -> None:
+    chicken = product("Chicken")
+    repository = InMemoryCartRepository(products=(chicken,))
+    repository.fail_writes = True
+    capability = AddToCartCapability(CartService(repository))
+
+    with pytest.raises(RuntimeError, match="persistence failed"):
+        await capability.execute(
+            CapabilityInput[CommerceSession](
+                data={"quantity": 2},
+                session=CommerceSession(selected_product=chicken),
+            )
+        )

@@ -20,6 +20,7 @@ from runtime.prompts.renderers import (
     CommerceSessionRenderer,
     ConversationRenderer,
 )
+from tests.fakes import InMemoryCartRepository
 
 
 def product(name: str) -> Product:
@@ -59,11 +60,12 @@ class CartRoutingProvider:
 
 
 def build_planner(provider: CartRoutingProvider) -> Planner:
+    cart_service = CartService(InMemoryCartRepository())
     registry = CapabilityRegistry[CommerceSession](
         capabilities=(
-            AddToCartCapability(CartService()),
-            ViewCartCapability(),
-            RemoveFromCartCapability(CartService()),
+            AddToCartCapability(cart_service),
+            ViewCartCapability(cart_service),
+            RemoveFromCartCapability(cart_service),
         )
     )
     prompt_builder = PlannerPromptBuilder(

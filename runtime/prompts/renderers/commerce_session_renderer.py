@@ -33,4 +33,28 @@ class CommerceSessionRenderer:
         else:
             lines.append("None.")
 
+        checkout = session.checkout
+        lines.append("Checkout state:")
+        lines.append(f"Stage: {checkout.stage.value}")
+        lines.append(
+            "Source cart: present"
+            if checkout.source_cart_id is not None
+            else "Source cart: missing"
+        )
+        lines.append(
+            "Customer name: provided"
+            if checkout.customer_name is not None
+            else "Customer name: missing"
+        )
+        lines.append(
+            "Phone number: provided"
+            if checkout.phone_number is not None
+            else "Phone number: missing"
+        )
+        lines.append(
+            "Delivery address: provided"
+            if checkout.delivery_address is not None
+            else "Delivery address: missing"
+        )
+
         return "\n".join(lines)

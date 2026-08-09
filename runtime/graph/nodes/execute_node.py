@@ -2,6 +2,7 @@ import logging
 from typing import Any
 
 from commerce.models import CommerceSession
+from runtime.capabilities import ExecutionContext
 from runtime.contracts import (
     ApprovedResponseFragment,
     ExecutionStatus,
@@ -35,6 +36,10 @@ class ExecuteNode:
             result = await self._command_handler.handle(
                 state.planner_response.command,
                 session,
+                ExecutionContext(
+                    tenant_id=state.tenant_id,
+                    conversation_id=state.conversation_id,
+                ),
             )
         except Exception:
             logger.exception("Command execution failed.")

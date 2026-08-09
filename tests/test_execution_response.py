@@ -133,6 +133,30 @@ async def test_generator_rejects_unapproved_ids_and_falls_back() -> None:
 
 
 @pytest.mark.asyncio
+async def test_generator_rejects_altered_protected_values_and_falls_back() -> None:
+    outcome = GeneratedExecutionOutcome(
+        status=ExecutionStatus.SUCCESS,
+        fragments=(
+            ApprovedResponseFragment(
+                id="cart-item-added", text="Added 2 kg Chicken Breast to your cart."
+            ),
+        ),
+        protected_values=("2", "kg", "Chicken Breast"),
+    )
+    provider = StubLLMProvider(
+        result=ResponseComposition(
+            layout=ResponseLayout.PARAGRAPH,
+            fragment_ids=("cart-item-added",),
+            message="2 kg Chicken added ho gaya.",
+        )
+    )
+
+    message = await response_generator(provider).generate(outcome, "cart me daal do")
+
+    assert message == "Added 2 kg Chicken Breast to your cart."
+
+
+@pytest.mark.asyncio
 async def test_generator_uses_list_fallback_when_provider_fails() -> None:
     outcome = GeneratedExecutionOutcome(
         status=ExecutionStatus.SUCCESS,
@@ -173,6 +197,10 @@ async def test_fixed_response_bypasses_llm() -> None:
             "सही आइटम चुनें। आप कौन-सा आइटम चाहते हैं? 1. First item",
         ),
         (
+            "pehla wala dedo",
+            "Valid item choose karo. Kaunsa chahiye? 1. First item",
+        ),
+        (
             "¿Quiero el primero, cuál elijo?",
             "Elige un artículo válido. ¿Cuál quieres? 1. First item",
         ),
@@ -203,6 +231,53 @@ async def test_generator_uses_any_customer_language_from_llm(
     assert message == llm_response
     prompt = provider.requests[0][0].messages[-1].content
     assert customer_message in prompt
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("customer_message", "llm_response"),
+    [
+        (
+            "Where is my order?",
+            "Order 123e4567-e89b-12d3-a456-426614174000 is CONFIRMED.",
+        ),
+        (
+            "mera order kaha hai",
+            "Order 123e4567-e89b-12d3-a456-426614174000 abhi CONFIRMED hai.",
+        ),
+        (
+            "मेरा ऑर्डर कहाँ है",
+            "Order 123e4567-e89b-12d3-a456-426614174000 अभी CONFIRMED है।",
+        ),
+    ],
+)
+async def test_order_response_localizes_without_altering_order_values(
+    customer_message: str,
+    llm_response: str,
+) -> None:
+    order_id = "123e4567-e89b-12d3-a456-426614174000"
+    outcome = GeneratedExecutionOutcome(
+        status=ExecutionStatus.SUCCESS,
+        fragments=(
+            ApprovedResponseFragment(
+                id="order-status", text=f"Order {order_id} status: CONFIRMED."
+            ),
+        ),
+        protected_values=(order_id, "CONFIRMED"),
+    )
+    provider = StubLLMProvider(
+        result=ResponseComposition(
+            layout=ResponseLayout.PARAGRAPH,
+            fragment_ids=("order-status",),
+            message=llm_response,
+        )
+    )
+
+    message = await response_generator(provider).generate(outcome, customer_message)
+
+    assert message == llm_response
+    assert order_id in message
+    assert "CONFIRMED" in message
 
 
 class FailingCommandHandler:

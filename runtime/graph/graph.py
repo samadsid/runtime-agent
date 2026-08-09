@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from runtime.graph.adapters import MessageAdapter
-from runtime.graph.memory import ConversationThread
+from runtime.graph.memory import ConversationThread, MemoryManager
 from runtime.graph.nodes import ExecuteNode, PlannerNode, ResponseNode
 from runtime.graph.state import CommerceGraphState
 from runtime.handlers import CommandHandler
@@ -18,7 +17,7 @@ class CommerceGraph:
         self,
         planner: Planner,
         command_handler: CommandHandler,
-        memory_manager: MemorySaver,
+        memory_manager: MemoryManager,
         message_adapter: MessageAdapter,
         response_generator: ResponseGenerator,
     ) -> None:

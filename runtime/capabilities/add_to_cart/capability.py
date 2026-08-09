@@ -62,11 +62,13 @@ class AddToCartCapability(Capability[CommerceSession]):
                 ExecutionStatus.INVALID_INPUT,
             )
 
-        session = self._service.add_or_replace(
-            input.session,
+        cart = await self._service.add_or_replace(
+            input.context.tenant_id,
+            input.context.conversation_id,
             product,
             arguments.quantity,
         )
+        session = input.session.model_copy(update={"cart_items": cart.items})
         quantity = format(arguments.quantity, "f")
         return CapabilityOutput(
             session=session,
@@ -82,11 +84,14 @@ class AddToCartCapability(Capability[CommerceSession]):
                     ),
                 ),
                 follow_up=FollowUpRequest(
-                                id="request-order",
-                                question=(
-                                    "Would you like to place an order for the items in your cart?"
+                                    id="confirm-cart-order",
+                                    question=(
+                                        f"You have {quantity} {product.unit} of "
+                                        f"{product.name} in your cart. Would you like "
+                                        "to proceed to checkout or continue shopping?"
+                                    ),
                                 ),
-                            ),
+                protected_values=(quantity, product.unit, product.name),
             ),
         )
 
@@ -126,6 +131,13 @@ class AddToCartCapability(Capability[CommerceSession]):
                     ),
                 ),
                 follow_up=follow_up,
+                protected_values=tuple(
+                    value
+                    for ordinal, product in enumerate(
+                        session.recent_product_results, start=1
+                    )
+                    for value in (str(ordinal), product.name)
+                ),
             ),
         )
 
@@ -155,5 +167,6 @@ class AddToCartCapability(Capability[CommerceSession]):
                         "to add?"
                     ),
                 ),
+                protected_values=(product.unit, product.name),
             ),
         )

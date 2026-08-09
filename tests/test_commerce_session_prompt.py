@@ -32,7 +32,13 @@ def test_commerce_session_renderer_preserves_result_ordinals() -> None:
         "Selected product:\n"
         "Chicken Breast\n"
         "Cart items:\n"
-        "None."
+        "None.\n"
+        "Checkout state:\n"
+        "Stage: NONE\n"
+        "Source cart: missing\n"
+        "Customer name: missing\n"
+        "Phone number: missing\n"
+        "Delivery address: missing"
     )
 
 

@@ -18,3 +18,7 @@ class DatabaseConfig(BaseModel):
             f"@{self.host}:{self.port}"
             f"/{self.database}"
         )
+
+    @property
+    def sqlalchemy_async_dsn(self) -> str:
+        return self.dsn.replace("postgresql://", "postgresql+asyncpg://", 1)

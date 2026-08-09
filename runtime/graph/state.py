@@ -24,6 +24,7 @@ def retain_commerce_session(
 
 class CommerceGraphState(BaseModel):
     conversation_id: UUID
+    tenant_id: UUID = UUID(int=0)
 
     messages: Annotated[
         list[BaseMessage],

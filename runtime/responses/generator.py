@@ -77,6 +77,14 @@ class ResponseGenerator:
         if composition.follow_up_id != approved_follow_up_id:
             raise ValueError("Response composition contains an invalid follow-up ID.")
 
+        missing_values = tuple(
+            value for value in outcome.protected_values if value not in composition.message
+        )
+        if missing_values:
+            raise ValueError(
+                f"Response composition altered protected values: {missing_values!r}"
+            )
+
     @staticmethod
     def _fallback_composition(
         outcome: GeneratedExecutionOutcome,

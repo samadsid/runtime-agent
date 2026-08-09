@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from commerce.models import CommerceSession, Product
+from commerce.models import CheckoutStage, CheckoutState, CommerceSession, Product
 from commerce.services import CartService
 from runtime.capabilities import CapabilityRegistry
 from runtime.capabilities.add_to_cart import AddToCartCapability
@@ -24,6 +24,7 @@ from runtime.handlers import (
     WaitHandler,
 )
 from runtime.planner.response import PlannerResponse
+from tests.fakes import InMemoryCartRepository
 
 
 class ApprovedResponseGenerator:
@@ -89,6 +90,7 @@ def product(name: str) -> Product:
 
 def build_graph(products: list[Product]):
     planner = ReferencePlanner()
+    cart_service = CartService(InMemoryCartRepository(products=tuple(products)))
     registry = CapabilityRegistry[CommerceSession](
         capabilities=[
             GreetingCapability(),
@@ -96,9 +98,9 @@ def build_graph(products: list[Product]):
                 service=StubSearchService(products),  # type: ignore[arg-type]
             ),
             SelectProductCapability(),
-            AddToCartCapability(CartService()),
-            ViewCartCapability(),
-            RemoveFromCartCapability(CartService()),
+            AddToCartCapability(cart_service),
+            ViewCartCapability(cart_service),
+            RemoveFromCartCapability(cart_service),
         ]
     )
     handler = CommandHandler[CommerceSession](
@@ -213,3 +215,26 @@ async def test_cart_state_survives_add_view_and_remove_across_turns() -> None:
     )
     assert checkpoint is not None
     assert checkpoint.checkpoint["channel_values"]["session"].cart_items == ()
+
+
+@pytest.mark.asyncio
+async def test_checkout_state_survives_message_only_checkpoint_resume() -> None:
+    graph, adapter, planner, _ = build_graph([product("Chicken Breast")])
+    conversation_id = uuid4()
+    checkout = CheckoutState(
+        stage=CheckoutStage.COLLECTING_DETAILS,
+        source_cart_id=uuid4(),
+        customer_name="Samad",
+    )
+    first = ConversationState(conversation_id=conversation_id)
+    first.add_user_message("show my cart")
+    first_state = adapter.to_graph_state(first).model_copy(
+        update={"session": CommerceSession(checkout=checkout)}
+    )
+
+    await graph.invoke(first_state)
+    second = ConversationState(conversation_id=conversation_id)
+    second.add_user_message("first one")
+    await graph.invoke(adapter.to_graph_state(second))
+
+    assert planner.observed_sessions[1].checkout == checkout

@@ -1,24 +1,24 @@
 from .capability import Capability
+from .capability_names import CapabilityName
 from .exceptions import (
     CapabilityError,
     DuplicateCapabilityError,
     UnknownCapabilityError,
 )
-from .input import CapabilityInput
+from .input import CapabilityInput, ExecutionContext
 from .metadata import CapabilityMetadata
 from .output import CapabilityOutput
 from .registry import CapabilityRegistry
-from .capability_names import CapabilityName
-
 
 __all__ = [
     "Capability",
     "CapabilityError",
-    "DuplicateCapabilityError",
-    "UnknownCapabilityError",
     "CapabilityInput",
     "CapabilityMetadata",
+    "CapabilityName",
     "CapabilityOutput",
     "CapabilityRegistry",
-    "CapabilityName"
+    "DuplicateCapabilityError",
+    "ExecutionContext",
+    "UnknownCapabilityError"
 ]

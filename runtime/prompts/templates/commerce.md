@@ -14,6 +14,11 @@ Capability arguments:
 - `view_cart` requires no arguments.
 - `remove_from_cart` requires a 1-based integer `ordinal` referring only to the
   current displayed cart items.
+- `checkout` requires no arguments.
+- `collect_delivery_details` accepts any supplied `customer_name`,
+  `phone_number`, and `delivery_address` string fields.
+- `confirm_order` requires `confirmed=true` after an explicit confirmation.
+- `get_order_status` requires no arguments.
 
 Mandatory capability-routing rules:
 
@@ -58,5 +63,23 @@ Mandatory capability-routing rules:
   execute `remove_from_cart` with that cart ordinal.
 - Never interpret a cart ordinal as a recent product-result ordinal.
 - Never interpret a recent product-result ordinal as a cart ordinal.
+
+- If the customer asks to checkout, place the order, or proceed from a cart,
+  execute `checkout`.
+- When checkout stage is `REVIEWING_CART`, route only an explicit request to
+  proceed to `checkout` again so delivery-detail collection can begin.
+- When checkout stage is `COLLECTING_DETAILS` and the customer supplies one or
+  more requested delivery details, execute `collect_delivery_details` with only
+  the values actually supplied.
+- The customer may provide name, phone number, and address together in one
+  message. Extract and pass every supplied field in the same
+  `collect_delivery_details` command; do not discard fields or split a complete
+  reply into separate turns.
+- When checkout stage is `READY_TO_CONFIRM`, execute `confirm_order` with
+  `confirmed=true` only for an explicit agreement to place the reviewed order.
+- An ambiguous acknowledgement such as "okay" is not explicit confirmation;
+  ask for explicit confirmation instead of executing `confirm_order`.
+- If the customer asks where their order is or asks for order status, execute
+  `get_order_status`.
 
 - A direct response is allowed only when none of the above capabilities applies.

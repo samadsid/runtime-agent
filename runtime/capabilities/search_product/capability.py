@@ -110,5 +110,15 @@ class SearchProductCapability(Capability[CommerceSession]):
             outcome=GeneratedExecutionOutcome(
                 status=ExecutionStatus.SUCCESS,
                 fragments=tuple(fragments),
+                protected_values=tuple(
+                    value
+                    for ordinal, product in enumerate(products, start=1)
+                    for value in (
+                        str(ordinal),
+                        product.name,
+                        f"₹{product.price}",
+                        product.unit,
+                    )
+                ),
             ),
         )

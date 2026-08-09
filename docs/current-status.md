@@ -45,10 +45,18 @@ Implemented
 - Add selected product to cart
 - View ordered cart items
 - Remove cart item by cart ordinal
+- Checkout review and delivery-detail collection
+- Explicit cash-on-delivery order confirmation
+- Latest order-status lookup
 
-The cart is stored as immutable, session-scoped in-memory state. Re-adding the
-same product replaces its quantity at the existing cart position. Product
-result ordinals and cart ordinals are separate namespaces.
+The active cart is stored in PostgreSQL through a commerce-domain repository.
+`CommerceSession` carries a checkpointed snapshot refreshed by cart reads and
+mutations. Re-adding the same product replaces its quantity at the existing
+cart position. Product-result ordinals and cart ordinals remain separate.
+
+Checkout workflow state is checkpointed in `CommerceSession`. Confirmed orders
+and item snapshots are stored in PostgreSQL, with cart closure and order creation
+committed atomically and idempotently by source cart.
 
 ---
 
@@ -56,11 +64,13 @@ result ordinals and cart ordinals are separate namespaces.
 
 Completed
 
-- LangGraph MemorySaver
+- Configurable LangGraph MemorySaver for local development
+- LangGraph PostgreSQL checkpointer for production
 - Conversation restoration
 - Thread ID support
 
-Verified working.
+Conversation ID remains the LangGraph thread ID. PostgreSQL checkpointer setup
+is owned by application infrastructure lifecycle.
 
 Typed commerce session state is checkpointed independently of the generic
 message-only conversation contract.
@@ -82,8 +92,6 @@ LangChain Messages
 
 ## Future
 
-- Checkout capability
-- PostgreSQL checkpointing
 - Authentication
 - Multi-tenant support
 - Streaming

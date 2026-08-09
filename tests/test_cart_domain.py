@@ -1,11 +1,12 @@
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
 
 from commerce.models import CartItem, CommerceSession, Product
 from commerce.services import CartService
+from tests.fakes import InMemoryCartRepository
 
 
 def product(name: str) -> Product:
@@ -28,25 +29,29 @@ def test_cart_item_rejects_non_positive_or_non_finite_quantity(
         CartItem(product=product("Chicken"), quantity=quantity)
 
 
-def test_cart_service_adds_and_replaces_by_product_id_in_place() -> None:
+@pytest.mark.asyncio
+async def test_cart_service_adds_and_replaces_by_product_id_in_place() -> None:
     chicken = product("Chicken")
     rice = product("Rice")
     session = CommerceSession(
         selected_product=chicken,
         cart_items=(CartItem(product=rice, quantity=Decimal(1)),),
     )
-    service = CartService()
+    service = CartService(
+        InMemoryCartRepository(products=(chicken, rice), items=session.cart_items)
+    )
 
-    added = service.add_or_replace(session, chicken, Decimal(2))
-    updated = service.add_or_replace(added, chicken, Decimal("3.5"))
+    await service.add_or_replace(UUID(int=0), UUID(int=0), chicken, Decimal(2))
+    updated = await service.add_or_replace(
+        UUID(int=0), UUID(int=0), chicken, Decimal("3.5")
+    )
 
-    assert session.cart_items == (CartItem(product=rice, quantity=Decimal(1)),)
-    assert tuple(item.product for item in updated.cart_items) == (rice, chicken)
-    assert updated.cart_items[1].quantity == Decimal("3.5")
-    assert updated.selected_product == chicken
+    assert tuple(item.product for item in updated.items) == (rice, chicken)
+    assert updated.items[1].quantity == Decimal("3.5")
 
 
-def test_cart_service_removes_item_and_preserves_other_session_state() -> None:
+@pytest.mark.asyncio
+async def test_cart_service_removes_item() -> None:
     first = product("First")
     second = product("Second")
     session = CommerceSession(
@@ -58,10 +63,12 @@ def test_cart_service_removes_item_and_preserves_other_session_state() -> None:
         ),
     )
 
-    updated = CartService().remove(session, 0)
+    repository = InMemoryCartRepository(items=session.cart_items)
+    service = CartService(repository)
+    cart = await service.get_active(UUID(int=0), UUID(int=0))
+    assert cart is not None
+    updated = await service.remove_by_ordinal(cart.id, 1)
 
-    assert updated.cart_items == (
+    assert updated.items == (
         CartItem(product=second, quantity=Decimal(2)),
     )
-    assert updated.recent_product_results == session.recent_product_results
-    assert updated.selected_product == second

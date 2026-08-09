@@ -162,9 +162,18 @@ Business State
 
 - CommerceSession
 
-`CommerceSession` owns selected-product context and the ordered, session-scoped
-cart. Cart entries are immutable commerce-domain values and are restored with
-the session through LangGraph checkpoints.
+`CommerceSession` owns selected-product context and an ordered snapshot of the
+active cart. PostgreSQL is authoritative for carts; cart capabilities refresh
+the snapshot after every persisted read or mutation. The snapshot is restored
+with the session through LangGraph checkpoints for planning context.
+
+`CommerceSession.checkout` is short-term workflow state. It records the
+reviewed source cart, collection stage, and delivery details until a customer
+explicitly confirms. It is checkpointed but is never an order.
+
+Confirmed orders and immutable order-item snapshots are authoritative in
+PostgreSQL. Order creation and cart closure occur in one repository transaction;
+the source cart uniquely identifies an idempotent confirmation.
 
 `CommerceSession` is commerce-specific typed state owned by
 `CommerceGraphState`. It is restored by LangGraph checkpoints using the
@@ -173,5 +182,9 @@ conversation thread ID and does not cross the generic, message-only
 
 Planner responses and execution outcomes are transient graph data and are not
 checkpointed.
+
+Tenant and conversation identity enter capability execution through a typed
+runtime context. The HTTP client does not select a tenant; the application
+injects its configured tenant until authentication is introduced.
 
 These are intentionally separate.

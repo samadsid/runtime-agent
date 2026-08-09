@@ -5,6 +5,7 @@ from typing import Generic, TypeVar
 from runtime.capabilities import (
     CapabilityInput,
     CapabilityRegistry,
+    ExecutionContext,
 )
 from runtime.commands import ExecuteCapabilityCommand
 
@@ -25,6 +26,7 @@ class ExecuteCapabilityHandler(CommandHandlerBase[SessionT], Generic[SessionT]):
         self,
         command: ExecuteCapabilityCommand,
         session: SessionT,
+        context: ExecutionContext,
     ) -> HandlerResult[SessionT]:
 
         capability = self._registry.get(command.capability)
@@ -33,6 +35,7 @@ class ExecuteCapabilityHandler(CommandHandlerBase[SessionT], Generic[SessionT]):
             CapabilityInput(
                 data=command.arguments,
                 session=session,
+                context=context,
             )
         )
 

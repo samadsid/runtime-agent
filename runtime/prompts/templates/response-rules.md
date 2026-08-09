@@ -80,6 +80,11 @@ Follow-up reference rules:
 - `follow_up_id` must never be placed in `fragment_ids`.
 - Never alter ID spelling, casing, hyphens, or order.
 
+Protected value rules:
+
+- Every string in `protected_values` must appear verbatim in `message`.
+- Never translate, reformat, change the case of, or omit a protected value.
+
 Follow-up message rules:
 
 - When `follow_up` is present, include its approved meaning as exactly one

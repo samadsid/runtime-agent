@@ -9,3 +9,7 @@ class CapabilityName(str, Enum):
     ADD_TO_CART = "add_to_cart"
     VIEW_CART = "view_cart"
     REMOVE_FROM_CART = "remove_from_cart"
+    CHECKOUT = "checkout"
+    COLLECT_DELIVERY_DETAILS = "collect_delivery_details"
+    CONFIRM_ORDER = "confirm_order"
+    GET_ORDER_STATUS = "get_order_status"

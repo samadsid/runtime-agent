@@ -1,7 +1,12 @@
 from typing import Generic, TypeVar
 
+from runtime.capabilities import ExecutionContext
 from runtime.commands import WaitCommand
-from runtime.contracts import ExecutionStatus, FixedExecutionOutcome
+from runtime.contracts import (
+    ApprovedResponseFragment,
+    ExecutionStatus,
+    GeneratedExecutionOutcome,
+)
 
 from .base import CommandHandlerBase
 from .result import HandlerResult
@@ -14,12 +19,15 @@ class WaitHandler(CommandHandlerBase[SessionT], Generic[SessionT]):
         self,
         command: WaitCommand,
         session: SessionT,
+        context: ExecutionContext,
     ) -> HandlerResult[SessionT]:
 
         return HandlerResult(
-            outcome=FixedExecutionOutcome(
+            outcome=GeneratedExecutionOutcome(
                 status=ExecutionStatus.SUCCESS,
-                message="Waiting...",
+                fragments=(
+                    ApprovedResponseFragment(id="waiting", text="Waiting..."),
+                ),
             ),
             session=session,
         )

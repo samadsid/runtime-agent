@@ -188,7 +188,7 @@ Keep the cart in immutable commerce session state for the in-memory slice.
 
 Status
 
-Accepted
+Superseded by ADR-014
 
 Reason
 
@@ -201,3 +201,83 @@ execution outcomes.
 
 Revisit when cart state must survive process restarts or support concurrent
 updates.
+
+---
+
+## ADR-014
+
+Persist active carts in PostgreSQL and keep a checkpointed session snapshot.
+
+Status
+
+Accepted
+
+Reason
+
+The database cart must survive restarts and serialize concurrent mutations.
+`CommerceSession.cart_items` remains useful planner context, but capabilities
+refresh it from the repository and never treat it as authoritative.
+
+---
+
+## ADR-015
+
+Select the LangGraph checkpointer through application configuration.
+
+Status
+
+Accepted
+
+Reason
+
+Local development may use process-local memory. Production uses LangGraph's
+PostgreSQL checkpointer and its schema lifecycle; no custom short-term memory
+tables are introduced.
+
+---
+
+## ADR-016
+
+Inject tenant identity from trusted server configuration.
+
+Status
+
+Accepted
+
+Reason
+
+Cart persistence requires a tenant boundary before authentication exists.
+Keeping tenant selection out of the public chat request avoids trusting an
+unauthenticated caller and leaves authentication as a later boundary change.
+
+---
+
+## ADR-017
+
+Keep checkout state in the commerce session and confirmed orders in PostgreSQL.
+
+Status
+
+Accepted
+
+Reason
+
+Checkout details are incomplete conversational workflow state and must resume
+through LangGraph checkpoints. An order exists only after explicit confirmation
+and is durable commerce data with immutable item snapshots.
+
+---
+
+## ADR-018
+
+Use the source cart as the order-confirmation idempotency key.
+
+Status
+
+Accepted
+
+Reason
+
+A unique order-to-cart link makes retries and concurrent confirmations return
+the same order. Cart uniqueness applies only to `ACTIVE` carts so a conversation
+can complete more than one cart over time.

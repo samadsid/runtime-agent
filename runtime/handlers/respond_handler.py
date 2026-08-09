@@ -1,7 +1,12 @@
 from typing import Generic, TypeVar
 
+from runtime.capabilities import ExecutionContext
 from runtime.commands import RespondCommand
-from runtime.contracts import ExecutionStatus, FixedExecutionOutcome
+from runtime.contracts import (
+    ApprovedResponseFragment,
+    ExecutionStatus,
+    GeneratedExecutionOutcome,
+)
 
 from .base import CommandHandlerBase
 from .result import HandlerResult
@@ -14,12 +19,17 @@ class RespondHandler(CommandHandlerBase[SessionT], Generic[SessionT]):
         self,
         command: RespondCommand,
         session: SessionT,
+        context: ExecutionContext,
     ) -> HandlerResult[SessionT]:
 
         return HandlerResult(
-            outcome=FixedExecutionOutcome(
+            outcome=GeneratedExecutionOutcome(
                 status=ExecutionStatus.SUCCESS,
-                message=command.message,
+                fragments=(
+                    ApprovedResponseFragment(
+                        id="planner-response", text=command.message
+                    ),
+                ),
             ),
             session=session,
         )

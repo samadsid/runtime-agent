@@ -1,36 +1,36 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from uuid import UUID
 
-from commerce.models import CartItem, CommerceSession, Product
+from commerce.models import Cart, Product
+from commerce.repositories import CartRepository
 
 
 class CartService:
-    def add_or_replace(
+    def __init__(self, repository: CartRepository) -> None:
+        self._repository = repository
+
+    async def add_or_replace(
         self,
-        session: CommerceSession,
+        tenant_id: UUID,
+        conversation_id: UUID,
         product: Product,
         quantity: Decimal,
-    ) -> CommerceSession:
-        item = CartItem(product=product, quantity=quantity)
-        cart_items = list(session.cart_items)
-
-        for index, existing in enumerate(cart_items):
-            if existing.product.id == product.id:
-                cart_items[index] = item
-                break
-        else:
-            cart_items.append(item)
-
-        return session.model_copy(update={"cart_items": tuple(cart_items)})
-
-    def remove(
-        self,
-        session: CommerceSession,
-        index: int,
-    ) -> CommerceSession:
-        cart_items = (
-            session.cart_items[:index]
-            + session.cart_items[index + 1 :]
+    ) -> Cart:
+        return await (
+            self._repository.get_or_create_active_cart_and_add_or_replace_item(
+                tenant_id=tenant_id,
+                conversation_id=conversation_id,
+                product_id=product.id,
+                quantity=quantity,
+            )
         )
-        return session.model_copy(update={"cart_items": cart_items})
+
+    async def get_active(
+        self, tenant_id: UUID, conversation_id: UUID
+    ) -> Cart | None:
+        return await self._repository.get_active_cart(tenant_id, conversation_id)
+
+    async def remove_by_ordinal(self, cart_id: UUID, ordinal: int) -> Cart:
+        return await self._repository.remove_item_by_ordinal(cart_id, ordinal)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Generic, TypeVar
 
+from runtime.capabilities import ExecutionContext
 from runtime.commands import (
     ExecuteCapabilityCommand,
     PlannerCommand,
@@ -33,15 +34,20 @@ class CommandHandler(Generic[SessionT]):
         self,
         command: PlannerCommand,
         session: SessionT,
+        context: ExecutionContext | None = None,
     ) -> HandlerResult[SessionT]:
 
+        execution_context = context or ExecutionContext()
+
         if isinstance(command, RespondCommand):
-            return await self._respond_handler.handle(command, session)
+            return await self._respond_handler.handle(command, session, execution_context)
 
         if isinstance(command, ExecuteCapabilityCommand):
-            return await self._execute_capability_handler.handle(command, session)
+            return await self._execute_capability_handler.handle(
+                command, session, execution_context
+            )
 
         if isinstance(command, WaitCommand):
-            return await self._wait_handler.handle(command, session)
+            return await self._wait_handler.handle(command, session, execution_context)
 
         raise ValueError(f"Unsupported command: {type(command).__name__}")

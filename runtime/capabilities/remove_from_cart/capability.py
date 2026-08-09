@@ -3,6 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field, ValidationError
 
 from commerce.models import CommerceSession
+from commerce.repositories import InvalidCartOrdinalError
 from commerce.services import CartService
 from runtime.capabilities import (
     Capability,
@@ -33,41 +34,49 @@ class RemoveFromCartCapability(Capability[CommerceSession]):
         return CapabilityMetadata(
             name=CapabilityName.REMOVE_FROM_CART,
             description=(
-                "Removes an item from the current cart using its 1-based cart "
+                "Removes an item from the persisted cart using its 1-based cart "
                 "ordinal. Requires an integer 'ordinal' argument."
             ),
         )
 
     async def execute(
-        self,
-        input: CapabilityInput[CommerceSession],
+        self, input: CapabilityInput[CommerceSession]
     ) -> CapabilityOutput[CommerceSession]:
-        if not input.session.cart_items:
-            return self._empty_cart(input.session)
+        cart = await self._service.get_active(
+            input.context.tenant_id, input.context.conversation_id
+        )
+        session = input.session.model_copy(
+            update={"cart_items": cart.items if cart is not None else ()}
+        )
+        if cart is None or not cart.items:
+            return self._empty_cart(session)
 
         if "ordinal" not in input.data:
-            return self._invalid_ordinal(
-                input.session,
-                ExecutionStatus.MISSING_INPUT,
-            )
-
+            return self._invalid_ordinal(session, ExecutionStatus.MISSING_INPUT)
         try:
             arguments = RemoveFromCartArguments.model_validate(input.data)
         except ValidationError:
-            return self._invalid_ordinal(
-                input.session,
-                ExecutionStatus.INVALID_INPUT,
-            )
+            return self._invalid_ordinal(session, ExecutionStatus.INVALID_INPUT)
 
         index = arguments.ordinal - 1
-        if index >= len(input.session.cart_items):
-            return self._invalid_ordinal(
-                input.session,
-                ExecutionStatus.INVALID_INPUT,
-            )
+        if index >= len(cart.items):
+            return self._invalid_ordinal(session, ExecutionStatus.INVALID_INPUT)
 
-        item = input.session.cart_items[index]
-        session = self._service.remove(input.session, index)
+        item = cart.items[index]
+        try:
+            updated_cart = await self._service.remove_by_ordinal(
+                cart.id, arguments.ordinal
+            )
+        except InvalidCartOrdinalError:
+            current = await self._service.get_active(
+                input.context.tenant_id, input.context.conversation_id
+            )
+            session = session.model_copy(
+                update={"cart_items": current.items if current is not None else ()}
+            )
+            return self._invalid_ordinal(session, ExecutionStatus.INVALID_INPUT)
+
+        session = session.model_copy(update={"cart_items": updated_cart.items})
         return CapabilityOutput(
             session=session,
             outcome=GeneratedExecutionOutcome(
@@ -81,23 +90,21 @@ class RemoveFromCartCapability(Capability[CommerceSession]):
                         ),
                     ),
                 ),
+                protected_values=(
+                    format(item.quantity, "f"),
+                    item.product.unit,
+                    item.product.name,
+                ),
             ),
         )
 
     @staticmethod
-    def _empty_cart(
-        session: CommerceSession,
-    ) -> CapabilityOutput[CommerceSession]:
+    def _empty_cart(session: CommerceSession) -> CapabilityOutput[CommerceSession]:
         return CapabilityOutput(
             session=session,
             outcome=GeneratedExecutionOutcome(
                 status=ExecutionStatus.NOT_FOUND,
-                fragments=(
-                    ApprovedResponseFragment(
-                        id="empty-cart",
-                        text="Your cart is empty.",
-                    ),
-                ),
+                fragments=(ApprovedResponseFragment(id="empty-cart", text="Your cart is empty."),),
                 follow_up=FollowUpRequest(
                     id="search-product-for-empty-cart",
                     question="What product would you like to search for?",
@@ -107,8 +114,7 @@ class RemoveFromCartCapability(Capability[CommerceSession]):
 
     @staticmethod
     def _invalid_ordinal(
-        session: CommerceSession,
-        status: ExecutionStatus,
+        session: CommerceSession, status: ExecutionStatus
     ) -> CapabilityOutput[CommerceSession]:
         return CapabilityOutput(
             session=session,
@@ -128,11 +134,13 @@ class RemoveFromCartCapability(Capability[CommerceSession]):
                             id=f"cart-item-{ordinal}",
                             label=f"{ordinal}. {item.product.name}",
                         )
-                        for ordinal, item in enumerate(
-                            session.cart_items,
-                            start=1,
-                        )
+                        for ordinal, item in enumerate(session.cart_items, start=1)
                     ),
+                ),
+                protected_values=tuple(
+                    value
+                    for ordinal, item in enumerate(session.cart_items, start=1)
+                    for value in (str(ordinal), item.product.name)
                 ),
             ),
         )
