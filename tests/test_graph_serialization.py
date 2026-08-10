@@ -7,6 +7,7 @@ from commerce.models import (
     CheckoutStage,
     CheckoutState,
     CommerceSession,
+    DeliveryDetailField,
     OrderStatus,
     OrderSummary,
     PendingCartClear,
@@ -38,6 +39,7 @@ def test_configured_serializer_round_trips_durable_commerce_models(
             stage=CheckoutStage.COLLECTING_DETAILS,
             source_cart_id=uuid4(),
             customer_name="Samad",
+            pending_delivery_correction=DeliveryDetailField.DELIVERY_ADDRESS,
         ),
         recent_order_results=(
             OrderSummary(
@@ -63,8 +65,10 @@ def test_configured_serializer_round_trips_durable_commerce_models(
     assert restored.pending_cart_clear == session.pending_cart_clear
     assert restored.pending_cart_clear.cart_id == cart_id
     assert restored.checkout == session.checkout
-    assert restored.recent_order_results == session.recent_order_results
     assert (
-        restored.pending_order_cancellation == session.pending_order_cancellation
+        restored.checkout.pending_delivery_correction
+        == DeliveryDetailField.DELIVERY_ADDRESS
     )
+    assert restored.recent_order_results == session.recent_order_results
+    assert restored.pending_order_cancellation == session.pending_order_cancellation
     assert "Deserializing unregistered type" not in caplog.text

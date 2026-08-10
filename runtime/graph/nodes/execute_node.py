@@ -26,8 +26,6 @@ class ExecuteNode:
         state: CommerceGraphState,
     ) -> dict[str, Any]:
 
-        print("===== Execute Node Called =====")
-
         if state.planner_response is None:
             raise ValueError("Planner response is required before execution.")
 
@@ -58,10 +56,6 @@ class ExecuteNode:
                 ),
                 "session": session,
             }
-
-        print("===== Execute Node Result =====")
-        print(result)
-        print("=============================================")
 
         return {
             "execution_outcome": result.outcome,

@@ -44,3 +44,12 @@ Order-reference rules:
 - Never infer an order identity from assistant text.
 - A first cancellation request only starts a confirmation review.
 - Only an explicit cancellation confirmation can use structured pending order state.
+
+Checkout-correction rules:
+
+- Resolve delivery corrections only from typed checkout state and the latest
+  customer message; never infer values from assistant prose.
+- A pending delivery correction controls the meaning of the next bare value.
+- Checkout abandonment and cart clearing are distinct intents.
+- Never pass tenant, conversation, cart, stage, or existing checkout values as
+  capability arguments.

@@ -16,6 +16,7 @@ from infrastructure.database.repositories import (
     PostgresProductRepository,
 )
 from runtime.capabilities import CapabilityRegistry
+from runtime.capabilities.abandon_checkout import AbandonCheckoutCapability
 from runtime.capabilities.add_to_cart import AddToCartCapability
 from runtime.capabilities.cancel_order import CancelOrderCapability
 from runtime.capabilities.checkout import CheckoutCapability
@@ -33,6 +34,9 @@ from runtime.capabilities.search_product import SearchProductCapability
 from runtime.capabilities.select_product import SelectProductCapability
 from runtime.capabilities.update_cart_item_quantity import (
     UpdateCartItemQuantityCapability,
+)
+from runtime.capabilities.update_delivery_details import (
+    UpdateDeliveryDetailsCapability,
 )
 from runtime.capabilities.view_cart import ViewCartCapability
 from runtime.domain.commerce_runtime import CommerceRuntime
@@ -209,6 +213,11 @@ class ApplicationContainer:
         self.collect_delivery_details_capability = CollectDeliveryDetailsCapability(
             phone_policy=self.phone_validation_policy,
         )
+        self.update_delivery_details_capability = UpdateDeliveryDetailsCapability(
+            cart_service=self.cart_service,
+            phone_policy=self.phone_validation_policy,
+        )
+        self.abandon_checkout_capability = AbandonCheckoutCapability()
         self.confirm_order_capability = ConfirmOrderCapability(
             service=self.order_service,
         )
@@ -238,6 +247,8 @@ class ApplicationContainer:
                 self.clear_cart_capability,
                 self.checkout_capability,
                 self.collect_delivery_details_capability,
+                self.update_delivery_details_capability,
+                self.abandon_checkout_capability,
                 self.confirm_order_capability,
                 self.get_order_status_capability,
                 self.list_orders_capability,

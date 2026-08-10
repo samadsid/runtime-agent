@@ -42,22 +42,16 @@ class ResponseGenerator:
     ) -> ResponseComposition:
         try:
             prompt = self._prompt_builder.build(outcome, customer_message)
-            print("===== Response Composition Prompt =====")
-            print(prompt)
-            print("=============================================")
             composition = await self._llm_provider.invoke(
                 request=prompt,
                 response_model=ResponseComposition,
             )
-            
-            print("===== Response Composition Generated =====")
-            print(composition.model_dump())
-            print("==========================================")
-            
             self._validate_composition(outcome, composition)
             return composition
         except Exception:
-            logger.exception("Response composition failed; using deterministic fallback.")
+            logger.exception(
+                "Response composition failed; using deterministic fallback."
+            )
             return self._fallback_composition(outcome)
 
     @staticmethod
@@ -78,12 +72,12 @@ class ResponseGenerator:
             raise ValueError("Response composition contains an invalid follow-up ID.")
 
         missing_values = tuple(
-            value for value in outcome.protected_values if value not in composition.message
+            value
+            for value in outcome.protected_values
+            if value not in composition.message
         )
         if missing_values:
-            raise ValueError(
-                f"Response composition altered protected values: {missing_values!r}"
-            )
+            raise ValueError("Response composition altered protected values.")
 
     @staticmethod
     def _fallback_composition(

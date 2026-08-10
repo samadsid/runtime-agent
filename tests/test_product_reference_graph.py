@@ -3,7 +3,13 @@ from uuid import uuid4
 
 import pytest
 
-from commerce.models import CheckoutStage, CheckoutState, CommerceSession, Product
+from commerce.models import (
+    CheckoutStage,
+    CheckoutState,
+    CommerceSession,
+    DeliveryDetailField,
+    Product,
+)
 from commerce.services import CartService
 from runtime.capabilities import CapabilityRegistry
 from runtime.capabilities.add_to_cart import AddToCartCapability
@@ -225,6 +231,7 @@ async def test_checkout_state_survives_message_only_checkpoint_resume() -> None:
         stage=CheckoutStage.COLLECTING_DETAILS,
         source_cart_id=uuid4(),
         customer_name="Samad",
+        pending_delivery_correction=DeliveryDetailField.DELIVERY_ADDRESS,
     )
     first = ConversationState(conversation_id=conversation_id)
     first.add_user_message("show my cart")
@@ -238,3 +245,7 @@ async def test_checkout_state_survives_message_only_checkpoint_resume() -> None:
     await graph.invoke(adapter.to_graph_state(second))
 
     assert planner.observed_sessions[1].checkout == checkout
+    assert (
+        planner.observed_sessions[1].checkout.pending_delivery_correction
+        == DeliveryDetailField.DELIVERY_ADDRESS
+    )

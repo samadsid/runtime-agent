@@ -38,9 +38,7 @@ class CommerceSessionRenderer:
             lines.append("None.")
         else:
             lines.append("Present.")
-            lines.append(
-                f"Reviewed cart ID: {session.pending_cart_clear.cart_id}"
-            )
+            lines.append(f"Reviewed cart ID: {session.pending_cart_clear.cart_id}")
             lines.append(
                 f"Reviewed cart version: {session.pending_cart_clear.cart_version}"
             )
@@ -68,6 +66,12 @@ class CommerceSessionRenderer:
             if checkout.delivery_address is not None
             else "Delivery address: missing"
         )
+        lines.append("Pending delivery correction:")
+        lines.append(
+            checkout.pending_delivery_correction.value
+            if checkout.pending_delivery_correction is not None
+            else "None."
+        )
 
         lines.append("Recent order results:")
         if session.recent_order_results:
@@ -80,9 +84,7 @@ class CommerceSessionRenderer:
 
         lines.append("Pending order cancellation:")
         lines.append(
-            "Present."
-            if session.pending_order_cancellation is not None
-            else "None."
+            "Present." if session.pending_order_cancellation is not None else "None."
         )
 
         return "\n".join(lines)

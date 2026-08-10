@@ -13,6 +13,12 @@ class CheckoutStage(str, Enum):
     READY_TO_CONFIRM = "READY_TO_CONFIRM"
 
 
+class DeliveryDetailField(str, Enum):
+    CUSTOMER_NAME = "customer_name"
+    PHONE_NUMBER = "phone_number"
+    DELIVERY_ADDRESS = "delivery_address"
+
+
 class CheckoutState(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -21,3 +27,4 @@ class CheckoutState(BaseModel):
     customer_name: str | None = None
     phone_number: str | None = None
     delivery_address: str | None = None
+    pending_delivery_correction: DeliveryDetailField | None = None

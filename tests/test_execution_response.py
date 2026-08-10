@@ -88,11 +88,7 @@ async def test_generator_returns_grounded_llm_response() -> None:
             layout=ResponseLayout.LIST,
             fragment_ids=("explanation",),
             follow_up_id="question",
-            message=(
-                "Choose a valid item.\n"
-                "Which item would you like?\n"
-                "1. First item"
-            ),
+            message=("Choose a valid item.\nWhich item would you like?\n1. First item"),
         )
     )
 
@@ -102,9 +98,7 @@ async def test_generator_returns_grounded_llm_response() -> None:
     )
 
     assert message == (
-        "Choose a valid item.\n"
-        "Which item would you like?\n"
-        "1. First item"
+        "Choose a valid item.\nWhich item would you like?\n1. First item"
     )
     request, response_model = provider.requests[0]
     assert response_model is ResponseComposition
@@ -154,6 +148,38 @@ async def test_generator_rejects_altered_protected_values_and_falls_back() -> No
     message = await response_generator(provider).generate(outcome, "cart me daal do")
 
     assert message == "Added 2 kg Chicken Breast to your cart."
+
+
+@pytest.mark.asyncio
+async def test_composition_failure_does_not_log_protected_delivery_values(
+    caplog,
+) -> None:
+    phone_number = "9876543210"
+    delivery_address = "B-68 New Zafrabad Delhi"
+    outcome = GeneratedExecutionOutcome(
+        status=ExecutionStatus.SUCCESS,
+        fragments=(
+            ApprovedResponseFragment(
+                id="delivery-review",
+                text=f"Phone: {phone_number}. Address: {delivery_address}.",
+            ),
+        ),
+        protected_values=(phone_number, delivery_address),
+    )
+    provider = StubLLMProvider(
+        result=ResponseComposition(
+            layout=ResponseLayout.PARAGRAPH,
+            fragment_ids=("delivery-review",),
+            message="Delivery details are ready.",
+        )
+    )
+
+    message = await response_generator(provider).generate(outcome, "details check karo")
+
+    assert phone_number in message
+    assert delivery_address in message
+    assert phone_number not in caplog.text
+    assert delivery_address not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -390,9 +416,7 @@ async def test_execute_node_converts_internal_error_to_safe_generated_outcome() 
     state = CommerceGraphState(
         conversation_id=uuid4(),
         session=session,
-        planner_response=PlannerResponse(
-            command=RespondCommand(message="unused")
-        ),
+        planner_response=PlannerResponse(command=RespondCommand(message="unused")),
     )
 
     update = await ExecuteNode(FailingCommandHandler()).__call__(state)  # type: ignore[arg-type]

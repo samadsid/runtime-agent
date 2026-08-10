@@ -1,7 +1,7 @@
 from .cart import Cart, CartStatus
 from .cart_editing import PendingCartClear
 from .cart_item import CartItem
-from .checkout import CheckoutStage, CheckoutState
+from .checkout import CheckoutStage, CheckoutState, DeliveryDetailField
 from .commerce_session import CommerceSession
 from .customer_order import OrderSummary, PendingOrderCancellation
 from .fulfilment import (
@@ -24,6 +24,7 @@ __all__ = [
     "CheckoutStage",
     "CheckoutState",
     "CommerceSession",
+    "DeliveryDetailField",
     "FulfilmentActor",
     "FulfilmentActorType",
     "InventoryBalance",

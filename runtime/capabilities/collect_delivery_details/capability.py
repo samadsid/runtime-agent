@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated
-
-from pydantic import BaseModel, ConfigDict, StringConstraints, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from commerce.models import CheckoutStage, CommerceSession
 from commerce.services import PhoneValidationPolicy
@@ -14,6 +12,7 @@ from runtime.capabilities import (
     CapabilityOutput,
 )
 from runtime.capabilities.checkout_support import (
+    NonEmptyText,
     confirmation_review_outcome,
     missing_detail_outcome,
     next_missing_detail,
@@ -24,8 +23,6 @@ from runtime.contracts import (
     FollowUpRequest,
     GeneratedExecutionOutcome,
 )
-
-NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 class DeliveryDetailsArguments(BaseModel):
@@ -89,9 +86,8 @@ class CollectDeliveryDetailsCapability(Capability[CommerceSession]):
             )
             return self._invalid_detail(input.session, invalid_field)
 
-        if (
-            arguments.phone_number is not None
-            and not self._phone_policy.is_valid(arguments.phone_number)
+        if arguments.phone_number is not None and not self._phone_policy.is_valid(
+            arguments.phone_number
         ):
             return self._invalid_phone(input.session)
 

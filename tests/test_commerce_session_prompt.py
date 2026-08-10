@@ -41,6 +41,8 @@ def test_commerce_session_renderer_preserves_result_ordinals() -> None:
         "Customer name: missing\n"
         "Phone number: missing\n"
         "Delivery address: missing\n"
+        "Pending delivery correction:\n"
+        "None.\n"
         "Recent order results:\n"
         "None.\n"
         "Pending order cancellation:\n"

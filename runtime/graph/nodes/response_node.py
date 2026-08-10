@@ -20,9 +20,9 @@ class ResponseNode:
         state: CommerceGraphState,
     ) -> dict[str, Any]:
         if state.execution_outcome is None:
-            raise ValueError("Execution outcome is required before response generation.")
-
-        print("===== Response Node Called =====")
+            raise ValueError(
+                "Execution outcome is required before response generation."
+            )
 
         messages = self._message_adapter.from_framework_messages(state.messages)
         customer_message = next(
@@ -38,10 +38,6 @@ class ResponseNode:
             state.execution_outcome,
             customer_message,
         )
-
-        print("===== Response Node Generated Message =====")
-        print(message)
-        print("=============================================")
 
         assistant_message = self._message_adapter.to_framework(
             Message.assistant(message)

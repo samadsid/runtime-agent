@@ -49,6 +49,9 @@ Implemented
   structured cart-product reference
 - Review and explicitly confirm clearing the exact persisted cart version
 - Checkout review and delivery-detail collection
+- Checkout delivery-detail correction with checkpointed two-turn replacement
+  collection and a fresh confirmation review
+- Idempotent checkout abandonment that preserves the persisted active cart
 - Explicit cash-on-delivery order confirmation
 - Latest order-status lookup
 - Inventory reservation during confirmed order creation
@@ -70,6 +73,12 @@ in-progress checkout state.
 Checkout workflow state is checkpointed in `CommerceSession`. Confirmed orders
 and item snapshots are stored in PostgreSQL, with cart closure and order creation
 committed atomically and idempotently by source cart.
+
+Customers may correct one or more delivery details while checkout is collecting
+or reviewing them. A typed pending correction field gives the next bare message
+an exact delivery-field meaning, and every accepted correction requires a new
+explicit order confirmation. Abandoning checkout resets only this short-lived
+checkout state; it does not clear the active cart or touch orders or inventory.
 
 Confirmation also locks product-level balances and creates active inventory
 reservations in that transaction. Product search excludes products without

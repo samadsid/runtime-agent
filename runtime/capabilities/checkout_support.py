@@ -1,12 +1,19 @@
 from __future__ import annotations
 
-from commerce.models import CheckoutState
+from typing import Annotated
+
+from pydantic import StringConstraints
+
+from commerce.models import CartItem, CheckoutState
 from runtime.contracts import (
     ApprovedResponseFragment,
     ExecutionStatus,
     FollowUpRequest,
     GeneratedExecutionOutcome,
+    ResponseFragmentKind,
 )
+
+NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 
 
 def next_missing_detail(checkout: CheckoutState) -> tuple[str, str] | None:
@@ -56,6 +63,9 @@ def all_delivery_details_outcome() -> GeneratedExecutionOutcome:
 
 def confirmation_review_outcome(
     checkout: CheckoutState,
+    cart_items: tuple[CartItem, ...] = (),
+    *,
+    corrected: bool = False,
 ) -> GeneratedExecutionOutcome:
     if (
         checkout.customer_name is None
@@ -63,9 +73,45 @@ def confirmation_review_outcome(
         or checkout.delivery_address is None
     ):
         raise ValueError("Complete delivery details are required for review.")
-    return GeneratedExecutionOutcome(
-        status=ExecutionStatus.SUCCESS,
-        fragments=(
+    fragments: list[ApprovedResponseFragment] = []
+    protected_values: list[str] = []
+    if corrected:
+        fragments.append(
+            ApprovedResponseFragment(
+                id="delivery-details-corrected",
+                text="The corrected delivery details are ready for review.",
+            )
+        )
+    if cart_items:
+        fragments.append(
+            ApprovedResponseFragment(
+                id="corrected-checkout-cart-heading",
+                text="Checkout cart review:",
+            )
+        )
+        for ordinal, item in enumerate(cart_items, start=1):
+            fragments.append(
+                ApprovedResponseFragment(
+                    id=f"corrected-checkout-item-{ordinal}",
+                    text=(
+                        f"{ordinal}. {item.product.name} — "
+                        f"{format(item.quantity, 'f')} {item.product.unit} at "
+                        f"₹{item.product.price}/{item.product.unit}"
+                    ),
+                    kind=ResponseFragmentKind.ITEM,
+                )
+            )
+            protected_values.extend(
+                (
+                    str(ordinal),
+                    item.product.name,
+                    format(item.quantity, "f"),
+                    item.product.unit,
+                    f"₹{item.product.price}",
+                )
+            )
+    fragments.extend(
+        (
             ApprovedResponseFragment(
                 id="delivery-name", text=f"Name: {checkout.customer_name}"
             ),
@@ -78,15 +124,22 @@ def confirmation_review_outcome(
             ApprovedResponseFragment(
                 id="payment-method", text="Payment: CASH_ON_DELIVERY"
             ),
-        ),
-        follow_up=FollowUpRequest(
-            id="confirm-order",
-            question="Please explicitly confirm that you want to place this order.",
-        ),
-        protected_values=(
+        )
+    )
+    protected_values.extend(
+        (
             checkout.customer_name,
             checkout.phone_number,
             checkout.delivery_address,
             "CASH_ON_DELIVERY",
+        )
+    )
+    return GeneratedExecutionOutcome(
+        status=ExecutionStatus.SUCCESS,
+        fragments=tuple(fragments),
+        follow_up=FollowUpRequest(
+            id="confirm-corrected-order" if corrected else "confirm-order",
+            question="Please explicitly confirm that you want to place this order.",
         ),
+        protected_values=tuple(protected_values),
     )

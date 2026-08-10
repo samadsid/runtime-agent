@@ -13,6 +13,8 @@ class CapabilityName(str, Enum):
     CLEAR_CART = "clear_cart"
     CHECKOUT = "checkout"
     COLLECT_DELIVERY_DETAILS = "collect_delivery_details"
+    UPDATE_DELIVERY_DETAILS = "update_delivery_details"
+    ABANDON_CHECKOUT = "abandon_checkout"
     CONFIRM_ORDER = "confirm_order"
     GET_ORDER_STATUS = "get_order_status"
     LIST_ORDERS = "list_orders"
