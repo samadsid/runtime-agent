@@ -16,6 +16,7 @@ class ExecutionContext(CustomerChannelContext):
     conversation_id: UUID = UUID(int=0)
     channel: ChannelName = ChannelName.DEVELOPMENT_HTTP
     channel_customer_id: str | None = None
+    request_id: str | None = None
 
 
 class CapabilityInput(BaseModel, Generic[SessionT]):

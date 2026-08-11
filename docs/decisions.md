@@ -412,3 +412,42 @@ provider creation is persisted in a second transaction. Only verified,
 idempotent events can confirm the order. Provider adapters and reconciliation
 remain outside LangGraph, and COD continues through its existing confirmation
 transaction.
+
+---
+
+## ADR-026
+
+Use a durable inbox/outbox channel adapter for Twilio WhatsApp.
+
+Status
+
+Accepted
+
+Reason
+
+Signed webhooks must acknowledge independently of LLM latency, provider retries
+must not rerun commerce decisions, and a transport sender is trusted only as a
+channel identifier. PostgreSQL owns channel mappings, delivery records,
+ordering, leases, and callback idempotency; LangGraph continues to own short-term
+conversation state. Trusted request and channel identity remain transient graph
+input and never become planner arguments.
+
+---
+
+## ADR-027
+
+Use a thin browser channel with durable REST request receipts.
+
+Status
+
+Accepted
+
+Reason
+
+The browser must render only the approved backend reply and keep its transcript
+as non-authoritative presentation state. A stable optional request UUID lets a
+manual retry return a completed response without rerunning the graph. Requests
+that began execution but did not persist a response remain ambiguous rather
+than risking duplicate commerce effects. PostgreSQL advisory locks serialize
+REST and external-channel work for the same conversation without changing the
+graph, planner, or capabilities.

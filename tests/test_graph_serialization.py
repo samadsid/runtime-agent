@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
+from asyncpg.pgproto.pgproto import UUID as AsyncpgUUID
+
 from commerce.models import (
     CartItem,
     CheckoutStage,
@@ -10,6 +12,7 @@ from commerce.models import (
     DeliveryDetailField,
     OrderStatus,
     OrderSummary,
+    PaymentMethod,
     PendingCartClear,
     PendingOrderCancellation,
     Product,
@@ -41,10 +44,11 @@ def test_configured_serializer_round_trips_durable_commerce_models(
         ),
         checkout=CheckoutState(
             stage=CheckoutStage.COLLECTING_DETAILS,
-            source_cart_id=(checkout_cart_id := uuid4()),
+            source_cart_id=(checkout_cart_id := AsyncpgUUID(str(uuid4()))),
             source_cart_version=7,
             customer_name="Samad",
             pending_delivery_correction=DeliveryDetailField.DELIVERY_ADDRESS,
+            payment_method=PaymentMethod.ONLINE,
             stock_recovery=StockRecoveryState(
                 cart_id=checkout_cart_id,
                 cart_version=7,
@@ -90,6 +94,9 @@ def test_configured_serializer_round_trips_durable_commerce_models(
     assert restored.pending_cart_clear == session.pending_cart_clear
     assert restored.pending_cart_clear.cart_id == cart_id
     assert restored.checkout == session.checkout
+    assert restored.checkout.stage is CheckoutStage.COLLECTING_DETAILS
+    assert restored.checkout.payment_method is PaymentMethod.ONLINE
+    assert isinstance(restored.checkout.source_cart_id, AsyncpgUUID)
     assert restored.checkout.stock_recovery == session.checkout.stock_recovery
     assert (
         restored.checkout.pending_delivery_correction

@@ -1,4 +1,6 @@
 from .postgres_cart_repository import PostgresCartRepository
+from .postgres_channel_repository import PostgresChannelRepository
+from .postgres_chat_request_repository import PostgresChatRequestRepository
 from .postgres_fulfilment_unit_of_work import PostgresFulfilmentUnitOfWork
 from .postgres_inventory_repository import PostgresInventoryRepository
 from .postgres_order_repository import PostgresOrderRepository
@@ -10,6 +12,8 @@ from .postgres_saved_delivery_details_repository import (
 
 __all__ = [
     "PostgresCartRepository",
+    "PostgresChannelRepository",
+    "PostgresChatRequestRepository",
     "PostgresFulfilmentUnitOfWork",
     "PostgresInventoryRepository",
     "PostgresOrderRepository",

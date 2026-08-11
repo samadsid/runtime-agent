@@ -14,3 +14,4 @@ class CustomerChannelContext(BaseModel):
     conversation_id: UUID
     channel: ChannelName
     channel_customer_id: str | None = None
+    request_id: str | None = None

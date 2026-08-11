@@ -18,7 +18,7 @@ class GeminiProvider(LLMProvider):
         self._llm = ChatGoogleGenerativeAI(
             model=settings.GEMINI_MODEL,
             google_api_key=settings.GEMINI_API_KEY,
-            temperature=settings.LLM_TEMPERATURE,
+            # temperature=settings.LLM_TEMPERATURE,
         )
 
     async def invoke(

@@ -148,6 +148,40 @@ LangChain Messages
 
 ---
 
+### Twilio WhatsApp Sandbox Channel
+
+Completed
+
+- Exact-URL signature validation for inbound and status webhooks
+- Durable conversation mapping, inbox, outbox, and delivery events
+- Asynchronous ordered processing and persist-before-send delivery
+- Trusted channel/request context outside planner arguments
+- Bounded retries, dead letters, ambiguous sends, monotonic callbacks, and
+  customer-service-window enforcement
+- Text-only unsupported-media handling
+- Liveness, readiness, and Prometheus metrics
+
+The REST channel and frozen graph remain unchanged.
+
+---
+
+### Customer Web Chat
+
+Completed
+
+- Responsive React and strict TypeScript chat interface
+- Safe Unicode and multiline reply rendering
+- Local transcript and conversation continuity
+- Manual retry with stable request identifiers
+- Durable REST request receipts and per-conversation serialization
+- Explicit development and production CORS origins
+- Keyboard, screen-reader, and 320-pixel responsive behavior
+- Unit, component, API-contract, and browser smoke tests
+
+The browser remains a presentation-only channel adapter. Commerce behavior and
+the frozen graph remain unchanged.
+
+---
 
 ## Future
 

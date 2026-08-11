@@ -230,6 +230,27 @@ checkout review or immutable order snapshot.
 
 These are intentionally separate.
 
+## External Conversational Channels
+
+Twilio WhatsApp is an infrastructure adapter around `CommerceRuntime`; it does
+not add graph nodes or enter capability models. Signed webhooks persist into a
+PostgreSQL inbox, background workers invoke the unchanged graph with transient
+trusted channel context, and the exact approved response is committed to an
+outbox before provider delivery. PostgreSQL channel mappings provide stable UUID
+conversation IDs while LangGraph remains authoritative for conversation state.
+
+Inbox leases, oldest-message selection, and tenant/conversation advisory locks
+serialize one graph thread while permitting different conversations to run in
+parallel. Outbound delivery and monotonic callbacks are independent of agent
+execution, so provider retries never regenerate a response.
+
+The customer web frontend is another outer channel adapter. It retains only a
+local presentation transcript and the backend-issued conversation UUID, then
+submits text through the existing REST runtime boundary. PostgreSQL request
+receipts deduplicate browser retries, and an infrastructure advisory lock
+serializes calls to one graph thread. The frontend never owns commerce state or
+interprets internal outcomes.
+
 ## Online Payments
 
 Online payments preserve the existing graph. Payment capabilities call a

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+from asyncpg.pgproto.pgproto import UUID as AsyncpgUUID
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -9,12 +10,14 @@ from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from commerce.models import (
     Cart,
     CartItem,
+    CheckoutStage,
     CheckoutState,
     CommerceSession,
     Order,
     OrderItem,
     OrderStatusHistory,
     OrderSummary,
+    PaymentMethod,
     PendingCartClear,
     PendingOrderCancellation,
     PendingSavedDetailsSave,
@@ -39,7 +42,9 @@ class GraphCheckpointer:
         self._postgres_dsn = postgres_dsn
         self._serializer = JsonPlusSerializer(
             allowed_msgpack_modules=(
+                AsyncpgUUID,
                 CommerceSession,
+                CheckoutStage,
                 CheckoutState,
                 Cart,
                 CartItem,
@@ -47,6 +52,7 @@ class GraphCheckpointer:
                 OrderItem,
                 OrderStatusHistory,
                 OrderSummary,
+                PaymentMethod,
                 PendingCartClear,
                 PendingOrderCancellation,
                 Product,

@@ -1,0 +1,1 @@
+"""External conversational channel adapters."""

@@ -1,5 +1,9 @@
 from app.api.rate_limit import FixedWindowRateLimiter
-from app.jobs import PaymentReconciliationJob
+from app.jobs import (
+    ChannelInboundProcessor,
+    ChannelOutboundDispatcher,
+    PaymentReconciliationJob,
+)
 from commerce.models import CommerceSession
 from commerce.services import (
     CartService,
@@ -12,9 +16,15 @@ from commerce.services import (
     SavedDeliveryDetailsService,
     SearchProductService,
 )
+from infrastructure.channels.twilio import (
+    TwilioRequestValidator,
+    TwilioWhatsAppMessageProvider,
+)
 from infrastructure.database import DatabasePool
 from infrastructure.database.repositories import (
     PostgresCartRepository,
+    PostgresChannelRepository,
+    PostgresChatRequestRepository,
     PostgresFulfilmentUnitOfWork,
     PostgresInventoryRepository,
     PostgresOrderRepository,
@@ -108,6 +118,11 @@ class ApplicationContainer:
 
         self.settings = settings
         self.payment_rate_limiter = FixedWindowRateLimiter()
+        self.twilio_request_validator = None
+        self.twilio_message_provider = None
+        self.channel_inbound_processor = None
+        self.channel_outbound_dispatcher = None
+        self.twilio_configured = False
 
         self._build_infrastructure()
 
@@ -129,10 +144,14 @@ class ApplicationContainer:
         Start application infrastructure.
         """
         self.settings.validate_payment_configuration()
+        self.settings.validate_twilio_configuration()
+        self.settings.validate_web_chat_configuration()
+        self._build_twilio()
         await self.database_pool.connect()
         try:
             await self.graph_checkpointer.start()
             self._build_runtime()
+            self._start_channel_workers()
             self.payment_reconciliation_job.start()
         except Exception:
             await self.graph_checkpointer.close()
@@ -143,6 +162,10 @@ class ApplicationContainer:
         """
         Shutdown application infrastructure.
         """
+        if self.channel_inbound_processor is not None:
+            await self.channel_inbound_processor.stop()
+        if self.channel_outbound_dispatcher is not None:
+            await self.channel_outbound_dispatcher.stop()
         await self.payment_reconciliation_job.stop()
         await self.graph_checkpointer.close()
         await self.database_pool.close()
@@ -155,6 +178,26 @@ class ApplicationContainer:
         self.database_pool = DatabasePool(
             config=self.settings.database,
         )
+        self.channel_repository = PostgresChannelRepository(self.database_pool)
+        self.chat_request_repository = PostgresChatRequestRepository(self.database_pool)
+
+    def _build_twilio(self) -> None:
+        if self.settings.TWILIO_WHATSAPP_ENABLED:
+            if (
+                not self.settings.TWILIO_AUTH_TOKEN
+                or not self.settings.TWILIO_ACCOUNT_SID
+            ):
+                raise RuntimeError("Twilio configuration was not validated.")
+            self.twilio_request_validator = TwilioRequestValidator(
+                self.settings.TWILIO_AUTH_TOKEN
+            )
+            self.twilio_message_provider = TwilioWhatsAppMessageProvider(
+                self.settings.TWILIO_ACCOUNT_SID,
+                self.settings.TWILIO_AUTH_TOKEN,
+                self.settings.TWILIO_WHATSAPP_FROM,
+                self.settings.TWILIO_WHATSAPP_MAX_OUTBOUND_BODY_CHARS,
+            )
+            self.twilio_configured = True
 
     def _build_commerce(self) -> None:
         """
@@ -427,3 +470,31 @@ class ApplicationContainer:
             graph=self.commerce_graph,
             graph_state_adapter=self.graph_state_adapter,
         )
+
+    def _start_channel_workers(self) -> None:
+        if not (
+            self.settings.TWILIO_WHATSAPP_ENABLED
+            and self.settings.TWILIO_WHATSAPP_PROCESSOR_ENABLED
+        ):
+            return
+        assert self.twilio_message_provider is not None
+        common = {
+            "repository": self.channel_repository,
+            "batch_size": self.settings.TWILIO_WHATSAPP_PROCESSOR_BATCH_SIZE,
+            "lease_seconds": self.settings.TWILIO_WHATSAPP_LEASE_SECONDS,
+            "max_attempts": self.settings.TWILIO_WHATSAPP_MAX_ATTEMPTS,
+            "interval_seconds": self.settings.TWILIO_WHATSAPP_PROCESSOR_INTERVAL_SECONDS,
+        }
+        self.channel_inbound_processor = ChannelInboundProcessor(
+            runtime=self.runtime,
+            sender_id=self.settings.TWILIO_WHATSAPP_FROM,
+            **common,
+        )
+        self.channel_outbound_dispatcher = ChannelOutboundDispatcher(
+            provider=self.twilio_message_provider,
+            status_callback_url=self.settings.twilio_status_url,
+            window_hours=self.settings.TWILIO_WHATSAPP_CUSTOMER_SERVICE_WINDOW_HOURS,
+            **common,
+        )
+        self.channel_inbound_processor.start()
+        self.channel_outbound_dispatcher.start()
