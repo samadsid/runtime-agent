@@ -1,3 +1,4 @@
+from .customer_context import CustomerChannelContext
 from .event import EventType, RuntimeEvent
 from .execution import (
     ApprovedOption,
@@ -18,6 +19,7 @@ __all__ = [
     "ApprovedOption",
     "ApprovedResponseFragment",
     "ConversationState",
+    "CustomerChannelContext",
     "EventType",
     "ExecutionOutcome",
     "ExecutionStatus",

@@ -9,7 +9,7 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
 from commerce.models import CommerceSession
-from runtime.contracts import ExecutionOutcome
+from runtime.contracts import CustomerChannelContext, ExecutionOutcome
 from runtime.planner.response import PlannerResponse
 
 
@@ -24,7 +24,11 @@ def retain_commerce_session(
 
 class CommerceGraphState(BaseModel):
     conversation_id: UUID
-    tenant_id: UUID = UUID(int=0)
+
+    customer_context: Annotated[
+        CustomerChannelContext | None,
+        UntrackedValue,
+    ] = None
 
     messages: Annotated[
         list[BaseMessage],

@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from uuid import UUID
 
 from commerce.models import (
+    ConfirmedOrderResult,
     FulfilmentActor,
     Order,
     OrderStatus,
@@ -17,12 +18,14 @@ class OrderRepository(ABC):
     @abstractmethod
     async def create_confirmed_order_from_cart(
         self,
+        tenant_id: UUID,
         conversation_id: UUID,
         cart_id: UUID,
+        expected_cart_version: int,
         customer_name: str,
         phone_number: str,
         delivery_address: str,
-    ) -> Order: ...
+    ) -> ConfirmedOrderResult: ...
 
     @abstractmethod
     async def list_for_conversation(
@@ -75,6 +78,10 @@ class InsufficientStockError(ValueError):
     def __init__(self, shortages: tuple[StockShortage, ...]) -> None:
         super().__init__("One or more products have insufficient stock.")
         self.shortages = shortages
+
+
+class OrderConfirmationPersistenceError(RuntimeError):
+    pass
 
 
 class OrderNotFoundError(LookupError):

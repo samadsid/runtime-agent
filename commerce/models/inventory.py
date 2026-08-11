@@ -66,5 +66,11 @@ class StockShortage(BaseModel):
     product_id: UUID
     product_name: str
     requested_quantity: Decimal = Field(gt=0, allow_inf_nan=False)
-    sellable_quantity: Decimal = Field(ge=0, allow_inf_nan=False)
+    available_quantity: Decimal = Field(ge=0, allow_inf_nan=False)
     unit: str
+
+    @model_validator(mode="after")
+    def validate_shortage(self) -> StockShortage:
+        if self.available_quantity >= self.requested_quantity:
+            raise ValueError("Available quantity must be less than requested quantity.")
+        return self

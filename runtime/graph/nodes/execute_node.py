@@ -30,13 +30,15 @@ class ExecuteNode:
             raise ValueError("Planner response is required before execution.")
 
         session = state.session or CommerceSession()
+        context = state.customer_context
+        if context is None:
+            context = ExecutionContext(conversation_id=state.conversation_id)
         try:
             result = await self._command_handler.handle(
                 state.planner_response.command,
                 session,
                 ExecutionContext(
-                    tenant_id=state.tenant_id,
-                    conversation_id=state.conversation_id,
+                    **context.model_dump(),
                 ),
             )
         except Exception:

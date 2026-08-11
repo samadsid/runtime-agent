@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import asyncpg
@@ -8,16 +11,21 @@ from commerce.models import (
     FulfilmentActor,
     FulfilmentActorType,
     Order,
+    OrderConfirmed,
     OrderItem,
     OrderStatus,
     OrderStatusHistory,
     OrderSummary,
     PaymentMethod,
+    StaleCheckout,
+    StaleCheckoutReason,
+    StockShortage,
+    StockUnavailable,
 )
-from commerce.repositories import CartNotAvailableForCheckoutError, OrderRepository
+from commerce.repositories import OrderConfirmationPersistenceError, OrderRepository
 from infrastructure.database import DatabasePool
 
-from .postgres_inventory_repository import PostgresInventoryRepository
+logger = logging.getLogger(__name__)
 
 
 class PostgresOrderRepository(OrderRepository):
@@ -31,50 +39,136 @@ class PostgresOrderRepository(OrderRepository):
 
     async def create_confirmed_order_from_cart(
         self,
+        tenant_id: UUID,
         conversation_id: UUID,
         cart_id: UUID,
+        expected_cart_version: int,
         customer_name: str,
         phone_number: str,
         delivery_address: str,
-    ) -> Order:
+    ) -> OrderConfirmed | StockUnavailable | StaleCheckout:
         if self._connection is None:
-            async with (
-                self._pool.pool.acquire() as connection,
-                connection.transaction(),
-            ):
-                return await PostgresOrderRepository(
-                    self._pool, connection
-                ).create_confirmed_order_from_cart(
-                    conversation_id,
-                    cart_id,
-                    customer_name,
-                    phone_number,
-                    delivery_address,
-                )
+            for attempt in range(3):
+                try:
+                    async with (
+                        self._pool.pool.acquire() as connection,
+                        connection.transaction(),
+                    ):
+                        return await PostgresOrderRepository(
+                            self._pool, connection
+                        ).create_confirmed_order_from_cart(
+                            tenant_id,
+                            conversation_id,
+                            cart_id,
+                            expected_cart_version,
+                            customer_name,
+                            phone_number,
+                            delivery_address,
+                        )
+                except asyncpg.PostgresError as error:
+                    if error.sqlstate not in {"40P01", "40001"}:
+                        raise
+                    if attempt == 2:
+                        logger.error(
+                            "Order confirmation concurrency retry exhausted.",
+                            extra={
+                                "event": "order_confirmation_retry_exhausted",
+                                "cart_id": str(cart_id),
+                                "sqlstate": error.sqlstate,
+                            },
+                        )
+                        raise OrderConfirmationPersistenceError(
+                            "Order confirmation temporarily unavailable."
+                        ) from error
+                    logger.warning(
+                        "Retrying complete order confirmation transaction.",
+                        extra={
+                            "event": "order_confirmation_concurrency_retry",
+                            "cart_id": str(cart_id),
+                            "attempt": attempt + 1,
+                            "sqlstate": error.sqlstate,
+                        },
+                    )
+                    await asyncio.sleep(0.025 * (2**attempt))
+            raise AssertionError("Confirmation retry loop did not return or raise.")
 
         connection = self._connection
+        existing_order_id = await connection.fetchval(
+            """
+            SELECT order_row.id
+            FROM orders AS order_row
+            JOIN carts AS cart ON cart.id = order_row.source_cart_id
+            WHERE order_row.source_cart_id = $1
+              AND cart.tenant_id = $2
+              AND cart.conversation_id = $3
+            """,
+            cart_id,
+            tenant_id,
+            conversation_id,
+        )
+        if existing_order_id is not None:
+            logger.info(
+                "Returning idempotent confirmed order.",
+                extra={
+                    "event": "order_confirmation_idempotent_retry",
+                    "cart_id": str(cart_id),
+                },
+            )
+            return OrderConfirmed(
+                order=await self._load_order(connection, existing_order_id),
+                idempotent=True,
+            )
+
         cart = await connection.fetchrow(
             """
-            SELECT id, conversation_id, status
+            SELECT id, tenant_id, conversation_id, status, version
             FROM carts
             WHERE id = $1
             FOR UPDATE
             """,
             cart_id,
         )
-        if cart is None or cart["conversation_id"] != conversation_id:
-            raise CartNotAvailableForCheckoutError(
-                "The checkout cart does not exist for this conversation."
+        if (
+            cart is None
+            or cart["tenant_id"] != tenant_id
+            or cart["conversation_id"] != conversation_id
+        ):
+            return StaleCheckout(
+                cart_id=cart_id,
+                reason=StaleCheckoutReason.CART_UNAVAILABLE,
             )
 
         existing_order_id = await connection.fetchval(
             "SELECT id FROM orders WHERE source_cart_id = $1", cart_id
         )
         if existing_order_id is not None:
-            return await self._load_order(connection, existing_order_id)
+            logger.info(
+                "Returning order created by a concurrent confirmation.",
+                extra={
+                    "event": "order_confirmation_idempotent_retry",
+                    "cart_id": str(cart_id),
+                },
+            )
+            return OrderConfirmed(
+                order=await self._load_order(connection, existing_order_id),
+                idempotent=True,
+            )
         if cart["status"] != "ACTIVE":
-            raise CartNotAvailableForCheckoutError(
-                "The checkout cart is no longer active."
+            return StaleCheckout(
+                cart_id=cart_id,
+                reason=StaleCheckoutReason.CART_UNAVAILABLE,
+            )
+        if cart["version"] != expected_cart_version:
+            logger.info(
+                "Reviewed cart version is stale.",
+                extra={
+                    "event": "order_confirmation_stale_checkout",
+                    "cart_id": str(cart_id),
+                },
+            )
+            return StaleCheckout(
+                cart_id=cart_id,
+                reason=StaleCheckoutReason.CART_CHANGED,
             )
 
         cart_rows = await connection.fetch(
@@ -82,15 +176,18 @@ class PostgresOrderRepository(OrderRepository):
             SELECT ci.product_id, ci.quantity, p.name AS product_name,
                    p.unit, p.price AS unit_price
             FROM cart_items AS ci
-            JOIN products AS p ON p.id = ci.product_id
+            JOIN products AS p
+              ON p.id = ci.product_id AND p.tenant_id = $2
             WHERE ci.cart_id = $1
             ORDER BY ci.created_at, ci.id
             """,
             cart_id,
+            tenant_id,
         )
         if not cart_rows:
-            raise CartNotAvailableForCheckoutError(
-                "An order cannot be created from an empty cart."
+            return StaleCheckout(
+                cart_id=cart_id,
+                reason=StaleCheckoutReason.EMPTY_CART,
             )
 
         order_id = uuid4()
@@ -111,7 +208,7 @@ class PostgresOrderRepository(OrderRepository):
         product_ids = sorted((item.product_id for item in order_items), key=str)
         balance_rows = await connection.fetch(
             """
-            SELECT product_id
+            SELECT product_id, on_hand_quantity, reserved_quantity
             FROM inventory_balances
             WHERE product_id = ANY($1::uuid[])
             ORDER BY product_id
@@ -119,9 +216,56 @@ class PostgresOrderRepository(OrderRepository):
             """,
             product_ids,
         )
-        # The inventory repository performs the grounded shortage calculation.
-        # It reuses these transaction-held locks when reserving below.
-        del balance_rows
+        balances = {row["product_id"]: row for row in balance_rows}
+        if any(
+            row["on_hand_quantity"] < 0
+            or row["reserved_quantity"] < 0
+            or row["reserved_quantity"] > row["on_hand_quantity"]
+            for row in balance_rows
+        ):
+            logger.error(
+                "Corrupt inventory balance blocked order confirmation.",
+                extra={
+                    "event": "order_confirmation_inventory_invariant",
+                    "cart_id": str(cart_id),
+                },
+            )
+            raise OrderConfirmationPersistenceError(
+                "Inventory is temporarily unavailable."
+            )
+        shortages = tuple(
+            StockShortage(
+                product_id=item.product_id,
+                product_name=item.product_name,
+                unit=item.unit,
+                requested_quantity=item.quantity,
+                available_quantity=(
+                    balances[item.product_id]["on_hand_quantity"]
+                    - balances[item.product_id]["reserved_quantity"]
+                    if item.product_id in balances
+                    else Decimal(0)
+                ),
+            )
+            for item in order_items
+            if item.product_id not in balances
+            or item.quantity
+            > balances[item.product_id]["on_hand_quantity"]
+            - balances[item.product_id]["reserved_quantity"]
+        )
+        if shortages:
+            logger.info(
+                "Stock conflict blocked order confirmation.",
+                extra={
+                    "event": "order_confirmation_stock_conflict",
+                    "cart_id": str(cart_id),
+                    "shortage_count": len(shortages),
+                },
+            )
+            return StockUnavailable(
+                cart_id=cart_id,
+                cart_version=cart["version"],
+                shortages=shortages,
+            )
 
         await connection.execute(
             """
@@ -160,8 +304,24 @@ class PostgresOrderRepository(OrderRepository):
                 for item in order_items
             ],
         )
-        await PostgresInventoryRepository(self._pool, connection).reserve_for_order(
-            order_id, order_items
+        await connection.executemany(
+            """
+            UPDATE inventory_balances
+            SET reserved_quantity = reserved_quantity + $2, updated_at = now()
+            WHERE product_id = $1
+            """,
+            [(item.product_id, item.quantity) for item in order_items],
+        )
+        await connection.executemany(
+            """
+            INSERT INTO inventory_reservations (
+                id, order_id, product_id, quantity, status, created_at
+            ) VALUES ($1, $2, $3, $4, 'ACTIVE', now())
+            """,
+            [
+                (uuid4(), order_id, item.product_id, item.quantity)
+                for item in order_items
+            ],
         )
         await connection.execute(
             """
@@ -180,7 +340,16 @@ class PostgresOrderRepository(OrderRepository):
             uuid4(),
             order_id,
         )
-        return await self._load_order(connection, order_id)
+        order = await self._load_order(connection, order_id)
+        logger.info(
+            "Order confirmed.",
+            extra={
+                "event": "order_confirmation_success",
+                "cart_id": str(cart_id),
+                "order_id": str(order_id),
+            },
+        )
+        return OrderConfirmed(order=order)
 
     async def list_for_conversation(
         self, conversation_id: UUID, limit: int

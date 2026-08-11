@@ -353,3 +353,42 @@ reviewed version, and confirmation locks and compares that version before
 deleting items. This prevents stale or repeated conversational confirmation
 from clearing a newer cart while keeping short-term intent out of business
 tables.
+
+---
+
+## ADR-023
+
+Use typed stock-conflict results and checkpointed recovery choices.
+
+Status
+
+Accepted
+
+Reason
+
+Expected inventory shortages are normal commerce outcomes, not application
+exceptions. Final confirmation locks the exact reviewed cart version and all
+required inventory rows before writing an order. Customer recovery choices are
+typed, ordinal-scoped interaction state; every recovery mutation rechecks
+PostgreSQL and cannot exceed the quantity previously offered.
+
+---
+
+## ADR-024
+
+Resolve saved delivery details from transient trusted channel context and keep
+PostgreSQL authoritative.
+
+Status
+
+Accepted
+
+Reason
+
+Saved details are a convenience feature, not authentication. Tenant, channel,
+and channel customer identity are injected outside LLM arguments and are not
+checkpointed. PostgreSQL owns profiles, addresses, optimistic versions, and
+default uniqueness; checkpoint state contains only safe ordinal projections and
+minimal pending consent/use workflows. Checkout and orders receive copied value
+snapshots so later saved-address mutations cannot change a pending or historical
+order.

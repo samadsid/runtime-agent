@@ -8,10 +8,15 @@ from uuid import uuid4
 import asyncpg
 import pytest
 
-from commerce.models import FulfilmentActor, FulfilmentActorType, Order, OrderStatus
+from commerce.models import (
+    FulfilmentActor,
+    FulfilmentActorType,
+    OrderConfirmed,
+    OrderStatus,
+    StockUnavailable,
+)
 from commerce.repositories import (
     CartNotFoundError,
-    InsufficientStockError,
     StaleCartError,
 )
 from commerce.services import FulfilmentService
@@ -189,15 +194,19 @@ async def test_postgres_order_confirmation_is_idempotent_and_snapshots_cart() ->
         order_repository = PostgresOrderRepository(adapter)  # type: ignore[arg-type]
 
         first = await order_repository.create_confirmed_order_from_cart(
+            tenant_id,
             conversation_id,
             cart.id,
+            cart.version,
             "Samad",
             "9876543210",
             "12 Market Road",
         )
         retried = await order_repository.create_confirmed_order_from_cart(
+            tenant_id,
             conversation_id,
             cart.id,
+            cart.version,
             "Samad",
             "9876543210",
             "12 Market Road",
@@ -208,7 +217,9 @@ async def test_postgres_order_confirmation_is_idempotent_and_snapshots_cart() ->
         )
         latest = await order_repository.get_latest_order(conversation_id)
 
-        assert first.id == retried.id
+        assert isinstance(first, OrderConfirmed)
+        assert isinstance(retried, OrderConfirmed)
+        assert first.order.id == retried.order.id
         balance = await pool.fetchrow(
             """
             SELECT on_hand_quantity, reserved_quantity
@@ -218,11 +229,11 @@ async def test_postgres_order_confirmation_is_idempotent_and_snapshots_cart() ->
         )
         reservation_count = await pool.fetchval(
             "SELECT COUNT(*) FROM inventory_reservations WHERE order_id = $1",
-            first.id,
+            first.order.id,
         )
         history_count = await pool.fetchval(
             "SELECT COUNT(*) FROM order_status_history WHERE order_id = $1",
-            first.id,
+            first.order.id,
         )
         assert balance["reserved_quantity"] == Decimal(2)
         assert reservation_count == 1
@@ -235,13 +246,13 @@ async def test_postgres_order_confirmation_is_idempotent_and_snapshots_cart() ->
             lambda: PostgresFulfilmentUnitOfWork(adapter)  # type: ignore[arg-type]
         )
         cancelled = await fulfilment.transition_order(
-            first.id,
+            first.order.id,
             OrderStatus.CANCELLED,
             FulfilmentActor(actor_id=uuid4(), actor_type=FulfilmentActorType.STAFF),
             "Integration test",
         )
         cancelled_again = await fulfilment.transition_order(
-            first.id,
+            first.order.id,
             OrderStatus.CANCELLED,
             FulfilmentActor(actor_id=uuid4(), actor_type=FulfilmentActorType.STAFF),
         )
@@ -256,7 +267,7 @@ async def test_postgres_order_confirmation_is_idempotent_and_snapshots_cart() ->
         assert (
             await pool.fetchval(
                 "SELECT COUNT(*) FROM order_status_history WHERE order_id = $1",
-                first.id,
+                first.order.id,
             )
             == 2
         )
@@ -334,8 +345,10 @@ async def test_postgres_order_and_cart_closure_roll_back_together() -> None:
 
         with pytest.raises(asyncpg.RaiseError, match="forced cart closure failure"):
             await order_repository.create_confirmed_order_from_cart(
+                tenant_id,
                 conversation_id,
                 cart.id,
+                cart.version,
                 "Samad",
                 "9876543210",
                 "12 Market Road",
@@ -407,8 +420,10 @@ async def test_concurrent_order_confirmations_cannot_oversell() -> None:
         results = await asyncio.gather(
             *(
                 order_repository.create_confirmed_order_from_cart(
+                    tenant_id,
                     conversation_id,
                     cart.id,
+                    cart.version,
                     "Customer",
                     "9876543210",
                     "12 Market Road",
@@ -418,10 +433,8 @@ async def test_concurrent_order_confirmations_cannot_oversell() -> None:
             return_exceptions=True,
         )
 
-        assert sum(isinstance(result, Order) for result in results) == 1
-        assert (
-            sum(isinstance(result, InsufficientStockError) for result in results) == 1
-        )
+        assert sum(isinstance(result, OrderConfirmed) for result in results) == 1
+        assert sum(isinstance(result, StockUnavailable) for result in results) == 1
         assert await pool.fetchval(
             "SELECT reserved_quantity FROM inventory_balances WHERE product_id = $1",
             product_id,

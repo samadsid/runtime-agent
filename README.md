@@ -16,6 +16,12 @@ server-owned tenant boundary until authentication is implemented.
 `CUSTOMER_SUPPORT_PATH` is required and supplies the exact support contact or
 path shown when an order is no longer eligible for self-service cancellation.
 
+Saved delivery details use trusted channel identity and remain optional. For
+local REST testing only, set `ALLOW_DEVELOPMENT_CUSTOMER_ID_HEADER=true` and
+send `X-Development-Customer-Id`; omit the header for guest checkout. The header
+is rejected while the setting is disabled and must not be enabled as a
+production authentication mechanism.
+
 Checkout supports cash-on-delivery only. Delivery details remain in checkpointed
 session state until explicit confirmation creates a durable order and closes the
 source cart atomically. Confirmation also reserves authoritative inventory and

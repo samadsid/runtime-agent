@@ -74,7 +74,9 @@ class AbandonCheckoutCapability(Capability[CommerceSession]):
             )
 
         return CapabilityOutput(
-            session=input.session.model_copy(update={"checkout": CheckoutState()}),
+            session=input.session.model_copy(
+                update={"checkout": CheckoutState(), "pending_saved_profile_use": None}
+            ),
             outcome=GeneratedExecutionOutcome(
                 status=ExecutionStatus.SUCCESS,
                 fragments=(

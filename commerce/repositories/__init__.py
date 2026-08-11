@@ -15,10 +15,18 @@ from .order_repository import (
     CustomerCancellationNotAllowedError,
     InsufficientStockError,
     InvalidOrderTransitionError,
+    OrderConfirmationPersistenceError,
     OrderNotFoundError,
     OrderRepository,
 )
 from .product_repository import ProductRepository
+from .saved_delivery_details_repository import (
+    SavedDeliveryAddressNotFoundError,
+    SavedDeliveryDetailsRepository,
+    SavedDeliveryPersistenceError,
+    SavedDeliveryProfileConflictError,
+    StaleSavedDeliveryAddressError,
+)
 
 __all__ = [
     "CartItemOrdinalError",
@@ -35,8 +43,14 @@ __all__ = [
     "InvalidOrderTransitionError",
     "InventoryRepository",
     "InventoryStateConflictError",
+    "OrderConfirmationPersistenceError",
     "OrderNotFoundError",
     "OrderRepository",
     "ProductRepository",
+    "SavedDeliveryAddressNotFoundError",
+    "SavedDeliveryDetailsRepository",
+    "SavedDeliveryPersistenceError",
+    "SavedDeliveryProfileConflictError",
     "StaleCartError",
+    "StaleSavedDeliveryAddressError",
 ]

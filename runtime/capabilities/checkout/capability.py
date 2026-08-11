@@ -48,6 +48,7 @@ class CheckoutCapability(Capability[CommerceSession]):
                 update={
                     "cart_items": (),
                     "checkout": CheckoutState(),
+                    "pending_saved_profile_use": None,
                     "pending_cart_clear": None,
                 }
             )
@@ -77,6 +78,7 @@ class CheckoutCapability(Capability[CommerceSession]):
         checkout = session.checkout
         if (
             checkout.source_cart_id == cart.id
+            and checkout.source_cart_version == cart.version
             and checkout.stage == CheckoutStage.REVIEWING_CART
         ):
             checkout = checkout.model_copy(
@@ -85,11 +87,16 @@ class CheckoutCapability(Capability[CommerceSession]):
             session = session.model_copy(update={"checkout": checkout})
             return CapabilityOutput(
                 session=session,
-                outcome=all_delivery_details_outcome(),
+                outcome=all_delivery_details_outcome(
+                    saved_addresses_available=(
+                        input.context.channel_customer_id is not None
+                    )
+                ),
             )
 
         if (
             checkout.source_cart_id == cart.id
+            and checkout.source_cart_version == cart.version
             and checkout.stage == CheckoutStage.COLLECTING_DETAILS
         ):
             return CapabilityOutput(
@@ -99,6 +106,7 @@ class CheckoutCapability(Capability[CommerceSession]):
 
         if (
             checkout.source_cart_id == cart.id
+            and checkout.source_cart_version == cart.version
             and checkout.stage == CheckoutStage.READY_TO_CONFIRM
         ):
             return CapabilityOutput(
@@ -109,6 +117,7 @@ class CheckoutCapability(Capability[CommerceSession]):
         checkout = CheckoutState(
             stage=CheckoutStage.REVIEWING_CART,
             source_cart_id=cart.id,
+            source_cart_version=cart.version,
         )
         session = session.model_copy(update={"checkout": checkout})
         fragments = [

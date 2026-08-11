@@ -43,7 +43,9 @@ def missing_detail_outcome(checkout: CheckoutState) -> GeneratedExecutionOutcome
     )
 
 
-def all_delivery_details_outcome() -> GeneratedExecutionOutcome:
+def all_delivery_details_outcome(
+    *, saved_addresses_available: bool = False
+) -> GeneratedExecutionOutcome:
     return GeneratedExecutionOutcome(
         status=ExecutionStatus.MISSING_INPUT,
         fragments=(
@@ -55,7 +57,10 @@ def all_delivery_details_outcome() -> GeneratedExecutionOutcome:
         follow_up=FollowUpRequest(
             id="request-delivery-details",
             question=(
-                "What are your name, phone number, and complete delivery address?"
+                "Would you like to view saved addresses, or provide your name, "
+                "phone number, and complete delivery address?"
+                if saved_addresses_available
+                else "What are your name, phone number, and complete delivery address?"
             ),
         ),
     )

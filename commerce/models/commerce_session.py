@@ -7,6 +7,11 @@ from .cart_item import CartItem
 from .checkout import CheckoutState
 from .customer_order import OrderSummary, PendingOrderCancellation
 from .product import Product
+from .saved_delivery import (
+    PendingSavedDetailsSave,
+    PendingSavedProfileUse,
+    SavedAddressOption,
+)
 
 
 class CommerceSession(BaseModel):
@@ -19,3 +24,6 @@ class CommerceSession(BaseModel):
     checkout: CheckoutState = Field(default_factory=CheckoutState)
     recent_order_results: tuple[OrderSummary, ...] = ()
     pending_order_cancellation: PendingOrderCancellation | None = None
+    recent_saved_addresses: tuple[SavedAddressOption, ...] = ()
+    pending_saved_profile_use: PendingSavedProfileUse | None = None
+    pending_saved_details_save: PendingSavedDetailsSave | None = None

@@ -118,6 +118,7 @@ class UpdateCartItemQuantityCapability(Capability[CommerceSession]):
             updates.update(
                 checkout=CheckoutState(),
                 pending_cart_clear=None,
+                pending_saved_profile_use=None,
             )
         session = session.model_copy(update=updates)
         quantity = format(arguments.quantity, "f")

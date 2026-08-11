@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import UUID
 
-from commerce.models import Cart, Product
+from commerce.models import AcceptAvailableQuantityResult, Cart, Product
 from commerce.repositories import (
     CartItemOrdinalError,
     CartNotFoundError,
@@ -83,3 +83,26 @@ class CartService:
             raise
         except Exception as error:
             raise CartPersistenceError("Could not clear the cart.") from error
+
+    async def accept_available_quantity(
+        self,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        cart_id: UUID,
+        expected_version: int,
+        product_id: UUID,
+        previously_offered: Decimal,
+    ) -> AcceptAvailableQuantityResult:
+        try:
+            return await self._repository.accept_available_quantity(
+                tenant_id,
+                conversation_id,
+                cart_id,
+                expected_version,
+                product_id,
+                previously_offered,
+            )
+        except Exception as error:
+            raise CartPersistenceError(
+                "Could not accept the available cart quantity."
+            ) from error

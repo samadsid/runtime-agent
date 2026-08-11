@@ -8,11 +8,12 @@ from commerce.models import (
     CheckoutStage,
     CheckoutState,
     CommerceSession,
+    OrderConfirmed,
     OrderStatus,
     Product,
     StockShortage,
+    StockUnavailable,
 )
-from commerce.repositories import InsufficientStockError
 from commerce.services import (
     CartService,
     NonEmptyPhoneValidationPolicy,
@@ -78,6 +79,7 @@ async def test_delivery_details_ask_only_for_next_missing_field() -> None:
         checkout=CheckoutState(
             stage=CheckoutStage.COLLECTING_DETAILS,
             source_cart_id=uuid4(),
+            source_cart_version=0,
         )
     )
 
@@ -164,6 +166,7 @@ async def test_confirmation_clears_unavailable_checkout_cart() -> None:
         checkout=CheckoutState(
             stage=CheckoutStage.READY_TO_CONFIRM,
             source_cart_id=uuid4(),
+            source_cart_version=0,
             customer_name="Samad",
             phone_number="9876543210",
             delivery_address="12 Market Road",
@@ -172,7 +175,7 @@ async def test_confirmation_clears_unavailable_checkout_cart() -> None:
 
     output = await capability.execute(input_for(session, {"confirmed": True}))
 
-    assert output.outcome.status == ExecutionStatus.NOT_FOUND
+    assert output.outcome.status == ExecutionStatus.CONFLICT
     assert output.session.checkout == CheckoutState()
 
 
@@ -191,6 +194,7 @@ async def test_confirmation_snapshots_cart_closes_it_and_is_idempotent() -> None
         checkout=CheckoutState(
             stage=CheckoutStage.READY_TO_CONFIRM,
             source_cart_id=cart.id,
+            source_cart_version=cart.version,
             customer_name="Samad",
             phone_number="9876543210",
             delivery_address="12 Market Road",
@@ -202,13 +206,15 @@ async def test_confirmation_snapshots_cart_closes_it_and_is_idempotent() -> None
     )
     first = order_repository.orders[0]
     retried = await service.create_confirmed_order_from_cart(
-        UUID(int=0), cart.id, "Samad", "9876543210", "12 Market Road"
+        UUID(int=0), UUID(int=0), cart.id, cart.version,
+        "Samad", "9876543210", "12 Market Road"
     )
 
     assert output.outcome.status == ExecutionStatus.SUCCESS
     assert output.session.cart_items == ()
     assert output.session.checkout == CheckoutState()
-    assert first.id == retried.id
+    assert isinstance(retried, OrderConfirmed)
+    assert first.id == retried.order.id
     assert len(order_repository.orders) == 1
     assert first.items[0].product_name == "Chicken Breast"
     assert first.items[0].unit_price == Decimal("320.00")
@@ -222,22 +228,26 @@ async def test_confirmation_reports_only_grounded_stock_shortages() -> None:
 
     class InsufficientService:
         async def create_confirmed_order_from_cart(self, **kwargs):
-            raise InsufficientStockError(
-                (
+            return StockUnavailable(
+                cart_id=kwargs["cart_id"],
+                cart_version=kwargs["expected_cart_version"],
+                shortages=(
                     StockShortage(
                         product_id=chicken.id,
                         product_name=chicken.name,
                         requested_quantity=Decimal("2.5"),
-                        sellable_quantity=Decimal(1),
+                        available_quantity=Decimal(1),
                         unit=chicken.unit,
                     ),
                 )
             )
 
     session = CommerceSession(
+        cart_items=(CartItem(product=chicken, quantity=Decimal("2.5")),),
         checkout=CheckoutState(
             stage=CheckoutStage.READY_TO_CONFIRM,
             source_cart_id=uuid4(),
+            source_cart_version=0,
             customer_name="Samad",
             phone_number="9876543210",
             delivery_address="12 Market Road",
@@ -247,16 +257,21 @@ async def test_confirmation_reports_only_grounded_stock_shortages() -> None:
 
     output = await capability.execute(input_for(session, {"confirmed": True}))
 
-    assert output.outcome.status == ExecutionStatus.FAILURE
-    assert output.session == session
-    assert output.outcome.fragments[0].text == (
-        "Chicken Breast: requested 2.5 kg; currently sellable 1 kg."
+    assert output.outcome.status == ExecutionStatus.CONFLICT
+    assert output.session.checkout.stock_recovery is not None
+    assert output.outcome.fragments[1].text == (
+        "1. Chicken Breast: requested 2.5 kg; currently available 1 kg."
     )
     assert output.outcome.protected_values == (
+        "1",
         "Chicken Breast",
         "2.5",
         "1",
         "kg",
+        "1",
+        "2",
+        "3",
+        "4",
     )
 
 
@@ -271,13 +286,15 @@ async def test_get_order_status_returns_latest_persisted_status() -> None:
     order_repository = InMemoryOrderRepository(cart_repository)
     service = OrderService(order_repository)
     order = await service.create_confirmed_order_from_cart(
-        UUID(int=0), cart.id, "Samad", "9876543210", "12 Market Road"
+        UUID(int=0), UUID(int=0), cart.id, cart.version,
+        "Samad", "9876543210", "12 Market Road"
     )
+    assert isinstance(order, OrderConfirmed)
 
     output = await GetOrderStatusCapability(service).execute(
         input_for(CommerceSession())
     )
 
     assert output.outcome.status == ExecutionStatus.SUCCESS
-    assert str(order.id) in output.outcome.fragments[0].text
+    assert str(order.order.id) in output.outcome.fragments[0].text
     assert OrderStatus.CONFIRMED.value in output.outcome.fragments[0].text

@@ -5,7 +5,18 @@ from uuid import UUID, uuid4
 
 import asyncpg
 
-from commerce.models import Cart, CartItem, CartStatus, Product
+from commerce.models import (
+    AcceptAvailableQuantityResult,
+    AvailableQuantityAccepted,
+    Cart,
+    CartItem,
+    CartStatus,
+    Product,
+    RecoveryAvailabilityChanged,
+    StaleCheckout,
+    StaleCheckoutReason,
+    StockShortage,
+)
 from commerce.repositories import (
     CartItemOrdinalError,
     CartNotFoundError,
@@ -209,6 +220,106 @@ class PostgresCartRepository(CartRepository):
             )
             await self._increment_version(connection, cart_id)
             return await self._load_cart(connection, cart_id)
+
+    async def accept_available_quantity(
+        self,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        cart_id: UUID,
+        expected_version: int,
+        product_id: UUID,
+        previously_offered: Decimal,
+    ) -> AcceptAvailableQuantityResult:
+        async with (
+            self._pool.pool.acquire() as connection,
+            connection.transaction(),
+        ):
+            cart = await connection.fetchrow(
+                """
+                SELECT id, version
+                FROM carts
+                WHERE id = $1
+                  AND tenant_id = $2
+                  AND conversation_id = $3
+                  AND status = 'ACTIVE'
+                FOR UPDATE
+                """,
+                cart_id,
+                tenant_id,
+                conversation_id,
+            )
+            if cart is None:
+                return StaleCheckout(
+                    cart_id=cart_id,
+                    reason=StaleCheckoutReason.CART_UNAVAILABLE,
+                )
+            if cart["version"] != expected_version:
+                return StaleCheckout(
+                    cart_id=cart_id,
+                    reason=StaleCheckoutReason.CART_CHANGED,
+                )
+
+            item = await connection.fetchrow(
+                """
+                SELECT ci.id, ci.quantity, p.name, p.unit
+                FROM cart_items AS ci
+                JOIN products AS p
+                  ON p.id = ci.product_id AND p.tenant_id = $3
+                WHERE ci.cart_id = $1 AND ci.product_id = $2
+                FOR UPDATE OF ci
+                """,
+                cart_id,
+                product_id,
+                tenant_id,
+            )
+            if item is None:
+                return StaleCheckout(
+                    cart_id=cart_id,
+                    reason=StaleCheckoutReason.CART_CHANGED,
+                )
+
+            balance = await connection.fetchrow(
+                """
+                SELECT on_hand_quantity, reserved_quantity
+                FROM inventory_balances
+                WHERE product_id = $1
+                FOR UPDATE
+                """,
+                product_id,
+            )
+            available = (
+                balance["on_hand_quantity"] - balance["reserved_quantity"]
+                if balance is not None
+                else Decimal(0)
+            )
+            if available <= 0:
+                return RecoveryAvailabilityChanged(
+                    shortage=StockShortage(
+                        product_id=product_id,
+                        product_name=item["name"],
+                        unit=item["unit"],
+                        requested_quantity=item["quantity"],
+                        available_quantity=Decimal(0),
+                    )
+                )
+
+            accepted = min(previously_offered, available)
+            await connection.execute(
+                """
+                UPDATE cart_items
+                SET quantity = $1, updated_at = now()
+                WHERE id = $2
+                """,
+                accepted,
+                item["id"],
+            )
+            await self._increment_version(connection, cart_id)
+            return AvailableQuantityAccepted(
+                cart=await self._load_cart(connection, cart_id),
+                product_name=item["name"],
+                unit=item["unit"],
+                quantity=accepted,
+            )
 
     @staticmethod
     async def _get_or_create_id(

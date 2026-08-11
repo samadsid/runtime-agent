@@ -72,6 +72,7 @@ class AddToCartCapability(Capability[CommerceSession]):
             update={
                 "cart_items": cart.items,
                 "checkout": CheckoutState(),
+                "pending_saved_profile_use": None,
                 "pending_cart_clear": None,
             }
         )

@@ -138,6 +138,7 @@ class ClearCartCapability(Capability[CommerceSession]):
                 "cart_items": cart.items,
                 "pending_cart_clear": None,
                 "checkout": CheckoutState(),
+                "pending_saved_profile_use": None,
             }
         )
         return CapabilityOutput(

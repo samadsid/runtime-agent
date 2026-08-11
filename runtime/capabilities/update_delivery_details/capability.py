@@ -163,7 +163,9 @@ class UpdateDeliveryDetailsCapability(Capability[CommerceSession]):
             )
 
         return CapabilityOutput(
-            session=refreshed_session.model_copy(update={"checkout": checkout}),
+            session=refreshed_session.model_copy(
+                update={"checkout": checkout, "pending_saved_profile_use": None}
+            ),
             outcome=outcome,
         )
 
@@ -263,7 +265,11 @@ class UpdateDeliveryDetailsCapability(Capability[CommerceSession]):
     ) -> CapabilityOutput[CommerceSession]:
         cart_items = cart.items if cart is not None else ()
         reset_session = session.model_copy(
-            update={"cart_items": cart_items, "checkout": CheckoutState()}
+            update={
+                "cart_items": cart_items,
+                "checkout": CheckoutState(),
+                "pending_saved_profile_use": None,
+            }
         )
         return CapabilityOutput(
             session=reset_session,

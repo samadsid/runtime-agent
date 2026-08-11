@@ -62,7 +62,7 @@ class PostgresInventoryRepository(InventoryRepository):
                 product_id=item.product_id,
                 product_name=item.product_name,
                 requested_quantity=item.quantity,
-                sellable_quantity=(
+                available_quantity=(
                     balances[item.product_id]["on_hand_quantity"]
                     - balances[item.product_id]["reserved_quantity"]
                     if item.product_id in balances

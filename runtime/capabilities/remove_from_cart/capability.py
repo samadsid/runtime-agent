@@ -87,6 +87,7 @@ class RemoveFromCartCapability(Capability[CommerceSession]):
             update={
                 "cart_items": updated_cart.items,
                 "checkout": CheckoutState(),
+                "pending_saved_profile_use": None,
                 "pending_cart_clear": None,
             }
         )

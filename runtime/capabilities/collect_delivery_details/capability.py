@@ -110,7 +110,9 @@ class CollectDeliveryDetailsCapability(Capability[CommerceSession]):
             outcome = missing_detail_outcome(checkout)
 
         return CapabilityOutput(
-            session=input.session.model_copy(update={"checkout": checkout}),
+            session=input.session.model_copy(
+                update={"checkout": checkout, "pending_saved_profile_use": None}
+            ),
             outcome=outcome,
         )
 

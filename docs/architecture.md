@@ -168,8 +168,9 @@ the snapshot after every persisted read or mutation. The snapshot is restored
 with the session through LangGraph checkpoints for planning context.
 
 `CommerceSession.checkout` is short-term workflow state. It records the
-reviewed source cart, collection stage, and delivery details until a customer
-explicitly confirms. It is checkpointed but is never an order.
+reviewed source cart and exact cart version, collection stage, delivery details,
+and any current stock-recovery choices until the workflow is reset. It is
+checkpointed but is never an order or authoritative inventory state.
 
 `CommerceSession.recent_order_results` is the ordered source for customer order
 ordinals. `CommerceSession.pending_order_cancellation` stores the exact durable
@@ -191,6 +192,14 @@ transaction as the order and cart closure. A framework-independent fulfilment
 service controls order transitions; its PostgreSQL unit of work applies status,
 reservation, balance, and audit-history changes atomically. Staff fulfilment
 does not pass through the customer planner or graph.
+
+Final confirmation passes trusted tenant/conversation identity plus the exact
+reviewed cart ID and version into the commerce service. The PostgreSQL
+transaction returns typed confirmation, shortage, or stale-checkout results.
+Shortages create no durable writes. A customer may explicitly accept a
+previously offered available quantity through a cart mutation that locks and
+rechecks both the reviewed cart version and current inventory; every successful
+recovery mutation invalidates checkout and requires a new review.
 Customer order reads are always scoped by `conversation_id`. Customer
 cancellation uses the fulfilment unit of work but applies the stricter policy
 that only `CONFIRMED` orders may be cancelled.
@@ -206,5 +215,17 @@ checkpointed.
 Tenant and conversation identity enter capability execution through a typed
 runtime context. The HTTP client does not select a tenant; the application
 injects its configured tenant until authentication is introduced.
+
+Trusted channel identity also enters through that application-owned context and
+is transient graph input. It is never accepted through planner arguments or
+stored in checkpoints. The REST adapter supports an explicitly enabled
+development-only customer header; omission is guest mode.
+
+Saved delivery profiles and addresses are authoritative in PostgreSQL.
+`CommerceSession.recent_saved_addresses` is a short-lived, ordered projection
+for a dedicated ordinal namespace. Pending saved-detail offers and confirmations
+are typed checkpointed workflow state, while selected delivery values are copied
+into checkout as snapshots. Saved-address changes never alter an existing
+checkout review or immutable order snapshot.
 
 These are intentionally separate.

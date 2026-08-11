@@ -53,12 +53,18 @@ Implemented
   collection and a fresh confirmation review
 - Idempotent checkout abandonment that preserves the persisted active cart
 - Explicit cash-on-delivery order confirmation
+- Stock-aware, all-or-nothing confirmation with typed multi-item shortages
+- Explicit recovery by accepting a revalidated available quantity
 - Latest order-status lookup
 - Inventory reservation during confirmed order creation
 - Domain-controlled fulfilment transitions, cancellation release, delivery
   consumption, and status audit history
 - Conversation-scoped recent order history and customer-safe order details
 - Two-step customer cancellation restricted to `CONFIRMED` orders
+- Trusted-channel saved delivery profiles with optional name and unverified phone
+- Multiple saved addresses with list/select/add/update/delete/default operations
+- Explicit save consent and typed second-turn overwrite/profile-use confirmation
+- Dedicated saved-address ordinals and checkout value snapshots
 
 The active cart is stored in PostgreSQL through a commerce-domain repository.
 `CommerceSession` carries a checkpointed snapshot refreshed by cart reads and
@@ -87,6 +93,15 @@ are implemented for staff-side status changes; HTTP exposure remains deferred
 until staff authentication, authorization, actor derivation, and request
 correlation are available.
 
+Confirmation now requires the exact checkpointed cart version reviewed by the
+customer. It returns typed confirmed, stock-unavailable, or stale-checkout
+results; the shortage path writes no order, reservation, inventory, or cart
+state. Typed checkpoint recovery choices keep recovery ordinals separate from
+cart ordinals. Accepting a displayed available amount re-locks the cart and
+inventory, caps the update at the offered quantity, increments the cart version,
+and requires checkout review again. Deadlock and serialization failures use a
+confirmation-scoped three-attempt retry policy before a safe temporary failure.
+
 Recent customer order results and a structured pending cancellation target are
 checkpointed in `CommerceSession`. Order references are resolved by durable
 UUID, recent-order ordinal, or latest order, and are re-authorized through
@@ -110,6 +125,10 @@ is owned by application infrastructure lifecycle.
 
 Typed commerce session state is checkpointed independently of the generic
 message-only conversation contract.
+
+Trusted channel context is transient and excluded from checkpoint state. Saved
+address projections and minimal pending confirmation workflows are checkpointed;
+durable profiles and addresses remain PostgreSQL-authoritative.
 
 ---
 

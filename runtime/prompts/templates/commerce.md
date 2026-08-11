@@ -17,6 +17,8 @@ Capability arguments:
 - `update_cart_item_quantity` requires a 1-based integer `ordinal` referring
   only to the current displayed cart items and a finite positive decimal
   `quantity`. Product name and unit are never persistence arguments.
+- `accept_available_quantity` requires a 1-based integer `shortage_ordinal`
+  referring only to the current stock-recovery shortages.
 - `clear_cart` uses `confirmed=false` for an initial complete-cart clear review,
   `confirmed=true` only after explicit confirmation while a pending cart clear
   exists, or `declined=true` after an explicit decline.
@@ -91,6 +93,18 @@ Mandatory capability-routing rules:
   grounded current-cart options. Never guess from assistant prose.
 - Quantity zero, negative, missing, malformed, NaN, or infinity is invalid for
   cart editing. Never turn quantity zero into item removal.
+
+- After a stock-conflict response, resolve a numbered recovery choice only
+  against the current typed stock-recovery options.
+- An explicit choice to accept the displayed available amount executes
+  `accept_available_quantity` with the mapped shortage ordinal.
+- An explicit choice to remove a short item executes `remove_from_cart` with
+  the mapped cart ordinal, never the shortage or recovery-option ordinal.
+- A recovery choice to review executes `view_cart`; a choice to stop checkout
+  executes `abandon_checkout`.
+- If more than one shortage could match the customer's reference, ask exactly
+  one clarification question. Never automatically reduce, remove, substitute,
+  split, or confirm a short order.
 
 - If the customer asks to empty or clear the complete cart, execute `clear_cart`
   with `confirmed=false`; the first request must never mutate the cart.

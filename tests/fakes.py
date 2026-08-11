@@ -5,21 +5,26 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from commerce.models import (
+    AvailableQuantityAccepted,
     Cart,
     CartItem,
     CartStatus,
     FulfilmentActor,
     Order,
+    OrderConfirmed,
     OrderItem,
     OrderStatus,
     OrderStatusHistory,
     OrderSummary,
     PaymentMethod,
     Product,
+    RecoveryAvailabilityChanged,
+    StaleCheckout,
+    StaleCheckoutReason,
+    StockShortage,
 )
 from commerce.repositories import (
     CartItemOrdinalError,
-    CartNotAvailableForCheckoutError,
     CartNotFoundError,
     CartRepository,
     InvalidCartOrdinalError,
@@ -46,6 +51,9 @@ class InMemoryCartRepository(CartRepository):
                 items=items,
             )
         self.fail_writes = False
+        self.sellable_quantities: dict[UUID, Decimal] = {
+            product_id: Decimal(1000000) for product_id in self.products
+        }
 
     async def get_or_create_active_cart(
         self, tenant_id: UUID, conversation_id: UUID
@@ -145,6 +153,64 @@ class InMemoryCartRepository(CartRepository):
         self.carts[(tenant_id, conversation_id)] = updated
         return updated
 
+    async def accept_available_quantity(
+        self,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        cart_id: UUID,
+        expected_version: int,
+        product_id: UUID,
+        previously_offered: Decimal,
+    ):
+        if self.fail_writes:
+            raise RuntimeError("persistence failed")
+        cart = await self.get_active_cart(tenant_id, conversation_id)
+        if cart is None or cart.id != cart_id:
+            return StaleCheckout(
+                cart_id=cart_id, reason=StaleCheckoutReason.CART_UNAVAILABLE
+            )
+        if cart.version != expected_version:
+            return StaleCheckout(
+                cart_id=cart_id, reason=StaleCheckoutReason.CART_CHANGED
+            )
+        index = next(
+            (
+                index
+                for index, item in enumerate(cart.items)
+                if item.product.id == product_id
+            ),
+            None,
+        )
+        if index is None:
+            return StaleCheckout(
+                cart_id=cart_id, reason=StaleCheckoutReason.CART_CHANGED
+            )
+        item = cart.items[index]
+        available = self.sellable_quantities.get(product_id, Decimal(0))
+        if available <= 0:
+            return RecoveryAvailabilityChanged(
+                shortage=StockShortage(
+                    product_id=product_id,
+                    product_name=item.product.name,
+                    unit=item.product.unit,
+                    requested_quantity=item.quantity,
+                    available_quantity=Decimal(0),
+                )
+            )
+        accepted = min(previously_offered, available)
+        items = list(cart.items)
+        items[index] = item.model_copy(update={"quantity": accepted})
+        updated = cart.model_copy(
+            update={"items": tuple(items), "version": cart.version + 1}
+        )
+        self.carts[(tenant_id, conversation_id)] = updated
+        return AvailableQuantityAccepted(
+            cart=updated,
+            product_name=item.product.name,
+            unit=item.product.unit,
+            quantity=accepted,
+        )
+
     def _replace(self, cart: Cart, product_id: UUID, quantity: Decimal) -> Cart:
         product = self.products[product_id]
         item = CartItem(product=product, quantity=quantity)
@@ -174,17 +240,19 @@ class InMemoryOrderRepository(OrderRepository):
 
     async def create_confirmed_order_from_cart(
         self,
+        tenant_id: UUID,
         conversation_id: UUID,
         cart_id: UUID,
+        expected_cart_version: int,
         customer_name: str,
         phone_number: str,
         delivery_address: str,
-    ) -> Order:
+    ):
         existing = next(
             (order for order in self.orders if order.source_cart_id == cart_id), None
         )
         if existing is not None:
-            return existing
+            return OrderConfirmed(order=existing, idempotent=True)
         if self.fail_creation:
             raise RuntimeError("order persistence failed")
         cart = next(
@@ -201,7 +269,17 @@ class InMemoryOrderRepository(OrderRepository):
             or cart.status != CartStatus.ACTIVE
             or not cart.items
         ):
-            raise CartNotAvailableForCheckoutError
+            return StaleCheckout(
+                cart_id=cart_id, reason=StaleCheckoutReason.CART_UNAVAILABLE
+            )
+        if cart.tenant_id != tenant_id:
+            return StaleCheckout(
+                cart_id=cart_id, reason=StaleCheckoutReason.CART_UNAVAILABLE
+            )
+        if cart.version != expected_cart_version:
+            return StaleCheckout(
+                cart_id=cart_id, reason=StaleCheckoutReason.CART_CHANGED
+            )
 
         order_id = uuid4()
         now = datetime.now(timezone.utc)
@@ -232,7 +310,7 @@ class InMemoryOrderRepository(OrderRepository):
         self.orders.append(order)
         closed = cart.model_copy(update={"status": CartStatus.CHECKED_OUT})
         self.cart_repository.carts[(cart.tenant_id, cart.conversation_id)] = closed
-        return order
+        return OrderConfirmed(order=order)
 
     async def list_for_conversation(
         self, conversation_id: UUID, limit: int

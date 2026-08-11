@@ -47,6 +47,7 @@ def checkout_fixture() -> tuple[
         checkout=CheckoutState(
             stage=CheckoutStage.READY_TO_CONFIRM,
             source_cart_id=cart.id,
+            source_cart_version=cart.version,
             customer_name="Samad",
             phone_number="9876543210",
             delivery_address="Old Address",

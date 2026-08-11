@@ -13,6 +13,10 @@ from commerce.models import (
     PendingCartClear,
     PendingOrderCancellation,
     Product,
+    StockRecoveryAction,
+    StockRecoveryOption,
+    StockRecoveryState,
+    StockShortage,
 )
 from runtime.graph.memory import GraphCheckpointer
 
@@ -37,9 +41,30 @@ def test_configured_serializer_round_trips_durable_commerce_models(
         ),
         checkout=CheckoutState(
             stage=CheckoutStage.COLLECTING_DETAILS,
-            source_cart_id=uuid4(),
+            source_cart_id=(checkout_cart_id := uuid4()),
+            source_cart_version=7,
             customer_name="Samad",
             pending_delivery_correction=DeliveryDetailField.DELIVERY_ADDRESS,
+            stock_recovery=StockRecoveryState(
+                cart_id=checkout_cart_id,
+                cart_version=7,
+                shortages=(
+                    StockShortage(
+                        product_id=product.id,
+                        product_name=product.name,
+                        unit=product.unit,
+                        requested_quantity=Decimal(2),
+                        available_quantity=Decimal(1),
+                    ),
+                ),
+                options=(
+                    StockRecoveryOption(
+                        ordinal=1,
+                        action=StockRecoveryAction.ACCEPT_AVAILABLE,
+                        shortage_ordinal=1,
+                    ),
+                ),
+            ),
         ),
         recent_order_results=(
             OrderSummary(
@@ -65,6 +90,7 @@ def test_configured_serializer_round_trips_durable_commerce_models(
     assert restored.pending_cart_clear == session.pending_cart_clear
     assert restored.pending_cart_clear.cart_id == cart_id
     assert restored.checkout == session.checkout
+    assert restored.checkout.stock_recovery == session.checkout.stock_recovery
     assert (
         restored.checkout.pending_delivery_correction
         == DeliveryDetailField.DELIVERY_ADDRESS

@@ -11,6 +11,7 @@ class ExecutionStatus(str, Enum):
     MISSING_INPUT = "missing_input"
     INVALID_INPUT = "invalid_input"
     NOT_FOUND = "not_found"
+    CONFLICT = "conflict"
     FAILURE = "failure"
 
 
@@ -79,6 +80,7 @@ class GeneratedExecutionOutcome(BaseModel):
             ExecutionStatus.MISSING_INPUT,
             ExecutionStatus.INVALID_INPUT,
             ExecutionStatus.NOT_FOUND,
+            ExecutionStatus.CONFLICT,
         }
         if self.status in statuses_requiring_follow_up and self.follow_up is None:
             raise ValueError(f"Status '{self.status.value}' requires a follow-up.")

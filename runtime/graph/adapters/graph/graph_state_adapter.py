@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from abc import ABC
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 
-from runtime.contracts import ConversationState
+from runtime.contracts import ConversationState, CustomerChannelContext
 from runtime.graph.state import CommerceGraphState
 
 
@@ -17,6 +16,7 @@ class GraphStateAdapter(ABC):
     def to_graph_state(
         self,
         conversation: ConversationState,
+        customer_context: CustomerChannelContext | None = None,
     ) -> CommerceGraphState:
         """
         Convert a ConversationState into a CommerceGraphState.

@@ -3,7 +3,9 @@ from __future__ import annotations
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from .order_confirmation import StockRecoveryState
 
 
 class CheckoutStage(str, Enum):
@@ -24,7 +26,9 @@ class CheckoutState(BaseModel):
 
     stage: CheckoutStage = CheckoutStage.NONE
     source_cart_id: UUID | None = None
+    source_cart_version: int | None = Field(default=None, ge=0)
     customer_name: str | None = None
     phone_number: str | None = None
     delivery_address: str | None = None
     pending_delivery_correction: DeliveryDetailField | None = None
+    stock_recovery: StockRecoveryState | None = None

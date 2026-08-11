@@ -52,6 +52,11 @@ class CommerceSessionRenderer:
             else "Source cart: missing"
         )
         lines.append(
+            f"Reviewed checkout cart version: {checkout.source_cart_version}"
+            if checkout.source_cart_version is not None
+            else "Reviewed checkout cart version: missing"
+        )
+        lines.append(
             "Customer name: provided"
             if checkout.customer_name is not None
             else "Customer name: missing"
@@ -72,6 +77,28 @@ class CommerceSessionRenderer:
             if checkout.pending_delivery_correction is not None
             else "None."
         )
+        lines.append("Stock recovery:")
+        recovery = checkout.stock_recovery
+        if recovery is None:
+            lines.append("None.")
+        else:
+            lines.append(f"Recovery cart version: {recovery.cart_version}")
+            lines.append("Shortages (separate ordinal namespace):")
+            for ordinal, shortage in enumerate(recovery.shortages, start=1):
+                lines.append(
+                    f"{ordinal}. {shortage.product_name} — requested "
+                    f"{format(shortage.requested_quantity, 'f')} {shortage.unit}; "
+                    f"available {format(shortage.available_quantity, 'f')} "
+                    f"{shortage.unit}"
+                )
+            lines.append("Recovery choices (separate ordinal namespace):")
+            for option in recovery.options:
+                target = ""
+                if option.shortage_ordinal is not None:
+                    target += f"; shortage ordinal {option.shortage_ordinal}"
+                if option.cart_ordinal is not None:
+                    target += f"; cart ordinal {option.cart_ordinal}"
+                lines.append(f"{option.ordinal}. {option.action.value}{target}")
 
         lines.append("Recent order results:")
         if session.recent_order_results:
@@ -85,6 +112,35 @@ class CommerceSessionRenderer:
         lines.append("Pending order cancellation:")
         lines.append(
             "Present." if session.pending_order_cancellation is not None else "None."
+        )
+
+        lines.append("Recent saved addresses (separate ordinal namespace):")
+        if session.recent_saved_addresses:
+            for ordinal, address in enumerate(session.recent_saved_addresses, start=1):
+                default = " — default" if address.is_default else ""
+                lines.append(f"{ordinal}. {address.label}{default}")
+        else:
+            lines.append("None.")
+        lines.append("Pending saved profile use:")
+        if session.pending_saved_profile_use is None:
+            lines.append("None.")
+        else:
+            lines.append("Present.")
+            lines.append(
+                "Saved name offered."
+                if session.pending_saved_profile_use.customer_name is not None
+                else "Saved name not offered."
+            )
+            lines.append(
+                "Saved phone offered."
+                if session.pending_saved_profile_use.phone_number is not None
+                else "Saved phone not offered."
+            )
+        lines.append("Pending saved details confirmation:")
+        lines.append(
+            session.pending_saved_details_save.reason.value
+            if session.pending_saved_details_save is not None
+            else "None."
         )
 
         return "\n".join(lines)

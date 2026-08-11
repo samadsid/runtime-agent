@@ -5,6 +5,7 @@ from commerce.services import (
     FulfilmentService,
     NonEmptyPhoneValidationPolicy,
     OrderService,
+    SavedDeliveryDetailsService,
     SearchProductService,
 )
 from infrastructure.database import DatabasePool
@@ -14,9 +15,13 @@ from infrastructure.database.repositories import (
     PostgresInventoryRepository,
     PostgresOrderRepository,
     PostgresProductRepository,
+    PostgresSavedDeliveryDetailsRepository,
 )
 from runtime.capabilities import CapabilityRegistry
 from runtime.capabilities.abandon_checkout import AbandonCheckoutCapability
+from runtime.capabilities.accept_available_quantity import (
+    AcceptAvailableQuantityCapability,
+)
 from runtime.capabilities.add_to_cart import AddToCartCapability
 from runtime.capabilities.cancel_order import CancelOrderCapability
 from runtime.capabilities.checkout import CheckoutCapability
@@ -25,19 +30,31 @@ from runtime.capabilities.collect_delivery_details import (
     CollectDeliveryDetailsCapability,
 )
 from runtime.capabilities.confirm_order import ConfirmOrderCapability
+from runtime.capabilities.confirm_save_delivery_details import (
+    ConfirmSaveDeliveryDetailsCapability,
+)
+from runtime.capabilities.confirm_saved_profile_use import (
+    ConfirmSavedProfileUseCapability,
+)
+from runtime.capabilities.delete_saved_address import DeleteSavedAddressCapability
 from runtime.capabilities.get_order_details import GetOrderDetailsCapability
 from runtime.capabilities.get_order_status import GetOrderStatusCapability
 from runtime.capabilities.greeting import GreetingCapability
 from runtime.capabilities.list_orders import ListOrdersCapability
+from runtime.capabilities.list_saved_addresses import ListSavedAddressesCapability
 from runtime.capabilities.remove_from_cart import RemoveFromCartCapability
+from runtime.capabilities.save_delivery_details import SaveDeliveryDetailsCapability
 from runtime.capabilities.search_product import SearchProductCapability
 from runtime.capabilities.select_product import SelectProductCapability
+from runtime.capabilities.select_saved_address import SelectSavedAddressCapability
+from runtime.capabilities.set_default_address import SetDefaultAddressCapability
 from runtime.capabilities.update_cart_item_quantity import (
     UpdateCartItemQuantityCapability,
 )
 from runtime.capabilities.update_delivery_details import (
     UpdateDeliveryDetailsCapability,
 )
+from runtime.capabilities.update_saved_address import UpdateSavedAddressCapability
 from runtime.capabilities.view_cart import ViewCartCapability
 from runtime.domain.commerce_runtime import CommerceRuntime
 from runtime.graph import CommerceGraph
@@ -140,6 +157,9 @@ class ApplicationContainer:
         self.inventory_repository = PostgresInventoryRepository(
             pool=self.database_pool,
         )
+        self.saved_delivery_details_repository = PostgresSavedDeliveryDetailsRepository(
+            pool=self.database_pool,
+        )
 
         self.search_product_service = SearchProductService(
             product_repository=self.product_repository,
@@ -159,6 +179,10 @@ class ApplicationContainer:
             ),
         )
         self.phone_validation_policy = NonEmptyPhoneValidationPolicy()
+        self.saved_delivery_details_service = SavedDeliveryDetailsService(
+            repository=self.saved_delivery_details_repository,
+            phone_policy=self.phone_validation_policy,
+        )
 
     def _build_prompting(self) -> None:
 
@@ -208,6 +232,9 @@ class ApplicationContainer:
         self.update_cart_item_quantity_capability = UpdateCartItemQuantityCapability(
             service=self.cart_service,
         )
+        self.accept_available_quantity_capability = AcceptAvailableQuantityCapability(
+            service=self.cart_service,
+        )
         self.clear_cart_capability = ClearCartCapability(service=self.cart_service)
         self.checkout_capability = CheckoutCapability(service=self.cart_service)
         self.collect_delivery_details_capability = CollectDeliveryDetailsCapability(
@@ -234,6 +261,14 @@ class ApplicationContainer:
             service=self.customer_order_service,
             support_path=self.settings.CUSTOMER_SUPPORT_PATH,
         )
+        self.list_saved_addresses_capability = ListSavedAddressesCapability(self.saved_delivery_details_service)
+        self.select_saved_address_capability = SelectSavedAddressCapability(self.saved_delivery_details_service)
+        self.save_delivery_details_capability = SaveDeliveryDetailsCapability(self.saved_delivery_details_service)
+        self.confirm_save_delivery_details_capability = ConfirmSaveDeliveryDetailsCapability(self.saved_delivery_details_service)
+        self.confirm_saved_profile_use_capability = ConfirmSavedProfileUseCapability(self.saved_delivery_details_service)
+        self.update_saved_address_capability = UpdateSavedAddressCapability(self.saved_delivery_details_service)
+        self.delete_saved_address_capability = DeleteSavedAddressCapability(self.saved_delivery_details_service)
+        self.set_default_address_capability = SetDefaultAddressCapability(self.saved_delivery_details_service)
 
         self.capability_registry = CapabilityRegistry[CommerceSession](
             capabilities=[
@@ -244,6 +279,7 @@ class ApplicationContainer:
                 self.view_cart_capability,
                 self.remove_from_cart_capability,
                 self.update_cart_item_quantity_capability,
+                self.accept_available_quantity_capability,
                 self.clear_cart_capability,
                 self.checkout_capability,
                 self.collect_delivery_details_capability,
@@ -254,6 +290,14 @@ class ApplicationContainer:
                 self.list_orders_capability,
                 self.get_order_details_capability,
                 self.cancel_order_capability,
+                self.list_saved_addresses_capability,
+                self.select_saved_address_capability,
+                self.save_delivery_details_capability,
+                self.confirm_save_delivery_details_capability,
+                self.confirm_saved_profile_use_capability,
+                self.update_saved_address_capability,
+                self.delete_saved_address_capability,
+                self.set_default_address_capability,
             ]
         )
 
@@ -279,7 +323,6 @@ class ApplicationContainer:
 
         self.graph_state_adapter = ConversationStateAdapter(
             self.message_adapter,
-            tenant_id=self.settings.DEFAULT_TENANT_ID,
         )
 
         self.llm_provider = GeminiProvider()

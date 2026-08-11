@@ -17,7 +17,13 @@ from commerce.models import (
     OrderSummary,
     PendingCartClear,
     PendingOrderCancellation,
+    PendingSavedDetailsSave,
+    PendingSavedProfileUse,
     Product,
+    SavedAddressOption,
+    StockRecoveryOption,
+    StockRecoveryState,
+    StockShortage,
 )
 
 
@@ -44,6 +50,12 @@ class GraphCheckpointer:
                 PendingCartClear,
                 PendingOrderCancellation,
                 Product,
+                StockRecoveryOption,
+                StockRecoveryState,
+                StockShortage,
+                SavedAddressOption,
+                PendingSavedDetailsSave,
+                PendingSavedProfileUse,
             )
         )
         self._pool = None

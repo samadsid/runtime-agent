@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     DEFAULT_TENANT_ID: UUID
     CHECKPOINTER_BACKEND: Literal["memory", "postgres"]
     CUSTOMER_SUPPORT_PATH: str = Field(min_length=1)
+    ALLOW_DEVELOPMENT_CUSTOMER_ID_HEADER: bool = False
 
     @property
     def database(self) -> DatabaseConfig:

@@ -4,11 +4,19 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from commerce.models import CheckoutStage, CheckoutState, CommerceSession
-from commerce.repositories import (
-    CartNotAvailableForCheckoutError,
-    InsufficientStockError,
+from commerce.models import (
+    CheckoutStage,
+    CheckoutState,
+    CommerceSession,
+    OrderConfirmed,
+    StaleCheckout,
+    StockRecoveryAction,
+    StockRecoveryOption,
+    StockRecoveryState,
+    StockShortage,
+    StockUnavailable,
 )
+from commerce.repositories import OrderConfirmationPersistenceError
 from commerce.services import OrderService
 from runtime.capabilities import (
     Capability,
@@ -18,6 +26,7 @@ from runtime.capabilities import (
     CapabilityOutput,
 )
 from runtime.contracts import (
+    ApprovedOption,
     ApprovedResponseFragment,
     ExecutionStatus,
     FollowUpRequest,
@@ -58,6 +67,7 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
         if (
             checkout.stage != CheckoutStage.READY_TO_CONFIRM
             or checkout.source_cart_id is None
+            or checkout.source_cart_version is None
             or checkout.customer_name is None
             or checkout.phone_number is None
             or checkout.delivery_address is None
@@ -65,73 +75,28 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
             return self._not_ready(input.session)
 
         try:
-            order = await self._service.create_confirmed_order_from_cart(
+            result = await self._service.create_confirmed_order_from_cart(
+                tenant_id=input.context.tenant_id,
                 conversation_id=input.context.conversation_id,
                 cart_id=checkout.source_cart_id,
+                expected_cart_version=checkout.source_cart_version,
                 customer_name=checkout.customer_name,
                 phone_number=checkout.phone_number,
                 delivery_address=checkout.delivery_address,
             )
-        except CartNotAvailableForCheckoutError:
-            session = input.session.model_copy(
-                update={
-                    "cart_items": (),
-                    "checkout": CheckoutState(),
-                    "pending_cart_clear": None,
-                }
-            )
-            return CapabilityOutput(
-                session=session,
-                outcome=GeneratedExecutionOutcome(
-                    status=ExecutionStatus.NOT_FOUND,
-                    fragments=(
-                        ApprovedResponseFragment(
-                            id="checkout-cart-unavailable",
-                            text="The checkout cart is empty or no longer available.",
-                        ),
-                    ),
-                    follow_up=FollowUpRequest(
-                        id="restart-shopping",
-                        question="What product would you like to search for?",
-                    ),
-                ),
-            )
-        except InsufficientStockError as error:
-            fragments = tuple(
-                ApprovedResponseFragment(
-                    id=f"insufficient-stock-{index}",
-                    text=(
-                        f"{shortage.product_name}: requested "
-                        f"{shortage.requested_quantity} {shortage.unit}; "
-                        f"currently sellable {shortage.sellable_quantity} "
-                        f"{shortage.unit}."
-                    ),
-                    kind=ResponseFragmentKind.ITEM,
-                )
-                for index, shortage in enumerate(error.shortages, start=1)
-            )
-            protected_values = tuple(
-                value
-                for shortage in error.shortages
-                for value in (
-                    shortage.product_name,
-                    str(shortage.requested_quantity),
-                    str(shortage.sellable_quantity),
-                    shortage.unit,
-                )
-            )
-            return CapabilityOutput(
-                session=input.session,
-                outcome=GeneratedExecutionOutcome(
-                    status=ExecutionStatus.FAILURE,
-                    fragments=fragments,
-                    protected_values=protected_values,
-                ),
-            )
+        except OrderConfirmationPersistenceError:
+            return self._temporary_failure(input.session)
+        if isinstance(result, StockUnavailable):
+            return self._stock_unavailable(input.session, result)
+        if isinstance(result, StaleCheckout):
+            return self._stale_checkout(input.session, result)
+        assert isinstance(result, OrderConfirmed)
+        order = result.order
         session = input.session.model_copy(
             update={
                 "cart_items": (),
                 "checkout": CheckoutState(),
+                "pending_saved_profile_use": None,
                 "pending_cart_clear": None,
             }
         )
@@ -152,6 +117,179 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
                     str(order.id),
                     order.status.value,
                     order.payment_method.value,
+                ),
+            ),
+        )
+
+    @staticmethod
+    def _stock_unavailable(
+        session: CommerceSession, result: StockUnavailable
+    ) -> CapabilityOutput[CommerceSession]:
+        options: list[StockRecoveryOption] = []
+        for shortage_ordinal, shortage in enumerate(result.shortages, start=1):
+            cart_ordinal = next(
+                (
+                    ordinal
+                    for ordinal, item in enumerate(session.cart_items, start=1)
+                    if item.product.id == shortage.product_id
+                ),
+                None,
+            )
+            if shortage.available_quantity > 0:
+                options.append(
+                    StockRecoveryOption(
+                        ordinal=len(options) + 1,
+                        action=StockRecoveryAction.ACCEPT_AVAILABLE,
+                        shortage_ordinal=shortage_ordinal,
+                    )
+                )
+            if cart_ordinal is not None:
+                options.append(
+                    StockRecoveryOption(
+                        ordinal=len(options) + 1,
+                        action=StockRecoveryAction.REMOVE_CART_ITEM,
+                        shortage_ordinal=shortage_ordinal,
+                        cart_ordinal=cart_ordinal,
+                    )
+                )
+        options.extend(
+            (
+                StockRecoveryOption(
+                    ordinal=len(options) + 1,
+                    action=StockRecoveryAction.VIEW_CART,
+                ),
+                StockRecoveryOption(
+                    ordinal=len(options) + 2,
+                    action=StockRecoveryAction.ABANDON_CHECKOUT,
+                ),
+            )
+        )
+        recovery = StockRecoveryState(
+            cart_id=result.cart_id,
+            cart_version=result.cart_version,
+            shortages=result.shortages,
+            options=tuple(options),
+        )
+        checkout = session.checkout.model_copy(update={"stock_recovery": recovery})
+        session = session.model_copy(update={"checkout": checkout})
+        fragments = (
+            ApprovedResponseFragment(
+                id="order-stock-unavailable",
+                text="The order was not confirmed because current stock is insufficient.",
+            ),
+            *tuple(
+                ApprovedResponseFragment(
+                    id=f"stock-shortage-{ordinal}",
+                    text=(
+                        f"{ordinal}. {shortage.product_name}: requested "
+                        f"{format(shortage.requested_quantity, 'f')} {shortage.unit}; "
+                        f"currently available "
+                        f"{format(shortage.available_quantity, 'f')} {shortage.unit}."
+                    ),
+                    kind=ResponseFragmentKind.ITEM,
+                )
+                for ordinal, shortage in enumerate(result.shortages, start=1)
+            ),
+        )
+        approved_options = tuple(
+            ApprovedOption(
+                id=f"stock-recovery-option-{option.ordinal}",
+                label=ConfirmOrderCapability._recovery_option_label(
+                    option, result.shortages
+                ),
+            )
+            for option in options
+        )
+        protected_values = tuple(
+            value
+            for ordinal, shortage in enumerate(result.shortages, start=1)
+            for value in (
+                str(ordinal),
+                shortage.product_name,
+                format(shortage.requested_quantity, "f"),
+                format(shortage.available_quantity, "f"),
+                shortage.unit,
+            )
+        ) + tuple(str(option.ordinal) for option in options)
+        return CapabilityOutput(
+            session=session,
+            outcome=GeneratedExecutionOutcome(
+                status=ExecutionStatus.CONFLICT,
+                fragments=fragments,
+                follow_up=FollowUpRequest(
+                    id="choose-stock-recovery",
+                    question="How would you like to update or review checkout?",
+                    options=approved_options,
+                ),
+                protected_values=protected_values,
+            ),
+        )
+
+    @staticmethod
+    def _recovery_option_label(
+        option: StockRecoveryOption, shortages: tuple[StockShortage, ...]
+    ) -> str:
+        prefix = f"{option.ordinal}. "
+        if option.action == StockRecoveryAction.VIEW_CART:
+            return prefix + "Review the current cart"
+        if option.action == StockRecoveryAction.ABANDON_CHECKOUT:
+            return prefix + "Stop checkout"
+        assert option.shortage_ordinal is not None
+        shortage = shortages[option.shortage_ordinal - 1]
+        if option.action == StockRecoveryAction.ACCEPT_AVAILABLE:
+            return (
+                prefix
+                + f"Reduce {shortage.product_name} to "
+                + f"{format(shortage.available_quantity, 'f')} {shortage.unit}"
+            )
+        assert option.cart_ordinal is not None
+        return prefix + f"Remove cart item {option.cart_ordinal}: {shortage.product_name}"
+
+    @staticmethod
+    def _stale_checkout(
+        session: CommerceSession, result: StaleCheckout
+    ) -> CapabilityOutput[CommerceSession]:
+        session = session.model_copy(
+            update={
+                "checkout": CheckoutState(),
+                "pending_cart_clear": None,
+                "pending_saved_profile_use": None,
+            }
+        )
+        text = (
+            "The cart changed after checkout was reviewed."
+            if result.reason.value == "CART_CHANGED"
+            else "The checkout cart is empty or no longer available."
+        )
+        return CapabilityOutput(
+            session=session,
+            outcome=GeneratedExecutionOutcome(
+                status=ExecutionStatus.CONFLICT,
+                fragments=(
+                    ApprovedResponseFragment(id="checkout-cart-changed", text=text),
+                ),
+                follow_up=FollowUpRequest(
+                    id="review-current-cart",
+                    question="Would you like to review the current cart?",
+                ),
+            ),
+        )
+
+    @staticmethod
+    def _temporary_failure(session: CommerceSession) -> CapabilityOutput[CommerceSession]:
+        return CapabilityOutput(
+            session=session,
+            outcome=GeneratedExecutionOutcome(
+                status=ExecutionStatus.FAILURE,
+                fragments=(
+                    ApprovedResponseFragment(
+                        id="order-confirmation-temporarily-unavailable",
+                        text="The order could not be confirmed safely right now.",
+                    ),
+                ),
+                follow_up=FollowUpRequest(
+                    id="retry-order-confirmation",
+                    question="Would you like to try confirming the order again?",
                 ),
             ),
         )

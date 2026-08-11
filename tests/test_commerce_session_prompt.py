@@ -38,16 +38,25 @@ def test_commerce_session_renderer_preserves_result_ordinals() -> None:
         "Checkout state:\n"
         "Stage: NONE\n"
         "Source cart: missing\n"
+        "Reviewed checkout cart version: missing\n"
         "Customer name: missing\n"
         "Phone number: missing\n"
         "Delivery address: missing\n"
         "Pending delivery correction:\n"
         "None.\n"
+        "Stock recovery:\n"
+        "None.\n"
         "Recent order results:\n"
         "None.\n"
-        "Pending order cancellation:\n"
-        "None."
-    )
+            "Pending order cancellation:\n"
+            "None.\n"
+            "Recent saved addresses (separate ordinal namespace):\n"
+            "None.\n"
+            "Pending saved profile use:\n"
+            "None.\n"
+            "Pending saved details confirmation:\n"
+            "None."
+        )
 
 
 def test_commerce_session_renderer_separates_cart_ordinals() -> None:
