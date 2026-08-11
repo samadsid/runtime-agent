@@ -9,6 +9,7 @@ from commerce.models import (
     CheckoutState,
     CommerceSession,
     OrderConfirmed,
+    PaymentMethod,
     StaleCheckout,
     StockRecoveryAction,
     StockRecoveryOption,
@@ -71,6 +72,7 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
             or checkout.customer_name is None
             or checkout.phone_number is None
             or checkout.delivery_address is None
+            or checkout.payment_method != PaymentMethod.CASH_ON_DELIVERY
         ):
             return self._not_ready(input.session)
 
@@ -243,7 +245,9 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
                 + f"{format(shortage.available_quantity, 'f')} {shortage.unit}"
             )
         assert option.cart_ordinal is not None
-        return prefix + f"Remove cart item {option.cart_ordinal}: {shortage.product_name}"
+        return (
+            prefix + f"Remove cart item {option.cart_ordinal}: {shortage.product_name}"
+        )
 
     @staticmethod
     def _stale_checkout(
@@ -276,7 +280,9 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
         )
 
     @staticmethod
-    def _temporary_failure(session: CommerceSession) -> CapabilityOutput[CommerceSession]:
+    def _temporary_failure(
+        session: CommerceSession,
+    ) -> CapabilityOutput[CommerceSession]:
         return CapabilityOutput(
             session=session,
             outcome=GeneratedExecutionOutcome(

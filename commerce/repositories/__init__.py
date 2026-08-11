@@ -19,6 +19,7 @@ from .order_repository import (
     OrderNotFoundError,
     OrderRepository,
 )
+from .payment_repository import PaymentCreationResult, PaymentRepository
 from .product_repository import ProductRepository
 from .saved_delivery_details_repository import (
     SavedDeliveryAddressNotFoundError,
@@ -46,6 +47,8 @@ __all__ = [
     "OrderConfirmationPersistenceError",
     "OrderNotFoundError",
     "OrderRepository",
+    "PaymentCreationResult",
+    "PaymentRepository",
     "ProductRepository",
     "SavedDeliveryAddressNotFoundError",
     "SavedDeliveryDetailsRepository",

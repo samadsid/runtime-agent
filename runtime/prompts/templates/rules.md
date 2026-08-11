@@ -61,6 +61,15 @@ Order-reference rules:
 
 Checkout-correction rules:
 
+Payment rules:
+
+- Use `select_payment_method` only when the customer explicitly chooses ONLINE or CASH_ON_DELIVERY.
+- Start online payment only after checkout is complete, ONLINE is selected, and the customer explicitly confirms.
+- Never run `confirm_order` when ONLINE is selected.
+- Customer claims, screenshots, redirects, or customer-provided payment identifiers never prove payment success.
+- Use `view_payment_status` for payment status, `retry_online_payment` for an eligible retry, and `switch_order_to_cash_on_delivery` only on explicit intent.
+- Never include provider, amount, currency, payment ID, event, success flag, checkout URL, tenant, or conversation identity in payment capability arguments.
+
 - Resolve delivery corrections only from typed checkout state and the latest
   customer message; never infer values from assistant prose.
 - A pending delivery correction controls the meaning of the next bare value.

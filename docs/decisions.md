@@ -392,3 +392,23 @@ default uniqueness; checkpoint state contains only safe ordinal projections and
 minimal pending consent/use workflows. Checkout and orders receive copied value
 snapshots so later saved-address mutations cannot change a pending or historical
 order.
+
+---
+
+## ADR-025
+
+Use provisional orders and a provider-neutral port for online payments.
+
+Status
+
+Accepted
+
+Reason
+
+Reservations and immutable commercial snapshots must exist before leaving for
+hosted payment, while external calls must not hold database transactions open.
+The source cart creates one provisional order and local attempt transactionally;
+provider creation is persisted in a second transaction. Only verified,
+idempotent events can confirm the order. Provider adapters and reconciliation
+remain outside LangGraph, and COD continues through its existing confirmation
+transaction.

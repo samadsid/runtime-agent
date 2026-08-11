@@ -14,6 +14,9 @@ from commerce.repositories import (
 
 class FulfilmentService:
     _ALLOWED_TRANSITIONS: ClassVar[dict[OrderStatus, frozenset[OrderStatus]]] = {
+        OrderStatus.AWAITING_PAYMENT: frozenset(),
+        OrderStatus.PAYMENT_FAILED: frozenset(),
+        OrderStatus.PAYMENT_EXPIRED: frozenset(),
         OrderStatus.CONFIRMED: frozenset(
             {OrderStatus.PREPARING, OrderStatus.CANCELLED}
         ),

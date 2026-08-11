@@ -229,3 +229,17 @@ into checkout as snapshots. Saved-address changes never alter an existing
 checkout review or immutable order snapshot.
 
 These are intentionally separate.
+
+## Online Payments
+
+Online payments preserve the existing graph. Payment capabilities call a
+framework-independent payment service, which depends on a provider port;
+provider adapters, webhook HTTP handling, and PostgreSQL implementations remain
+at infrastructure boundaries.
+
+An online confirmation atomically creates an `AWAITING_PAYMENT` order, immutable
+item snapshots, active reservations, and a local `CREATING` attempt before any
+provider call. Verified provider events are the only path to `CONFIRMED`.
+PostgreSQL owns orders, attempts, webhook idempotency, reservations, and fake
+provider records. A lifespan reconciliation loop uses bounded `SKIP LOCKED`
+claims and the same event transition service as webhooks.

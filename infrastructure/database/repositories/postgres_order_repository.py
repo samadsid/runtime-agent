@@ -174,7 +174,7 @@ class PostgresOrderRepository(OrderRepository):
         cart_rows = await connection.fetch(
             """
             SELECT ci.product_id, ci.quantity, p.name AS product_name,
-                   p.unit, p.price AS unit_price
+                   p.unit, p.price AS unit_price, p.currency
             FROM cart_items AS ci
             JOIN products AS p
               ON p.id = ci.product_id AND p.tenant_id = $2
@@ -199,6 +199,7 @@ class PostgresOrderRepository(OrderRepository):
                 product_name=row["product_name"],
                 unit=row["unit"],
                 unit_price=row["unit_price"],
+                currency=row["currency"],
                 quantity=row["quantity"],
             )
             for row in cart_rows
@@ -288,8 +289,8 @@ class PostgresOrderRepository(OrderRepository):
         await connection.executemany(
             """
             INSERT INTO order_items (
-                id, order_id, product_id, product_name, unit, unit_price, quantity
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+                id, order_id, product_id, product_name, unit, unit_price, currency, quantity
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             """,
             [
                 (
@@ -299,6 +300,7 @@ class PostgresOrderRepository(OrderRepository):
                     item.product_name,
                     item.unit,
                     item.unit_price,
+                    item.currency,
                     item.quantity,
                 )
                 for item in order_items
@@ -419,9 +421,7 @@ class PostgresOrderRepository(OrderRepository):
             else None
         )
 
-    async def get_latest_for_conversation(
-        self, conversation_id: UUID
-    ) -> Order | None:
+    async def get_latest_for_conversation(self, conversation_id: UUID) -> Order | None:
         if self._connection is None:
             async with self._pool.pool.acquire() as connection:
                 return await PostgresOrderRepository(
@@ -563,7 +563,7 @@ class PostgresOrderRepository(OrderRepository):
         item_rows = await connection.fetch(
             """
             SELECT id, order_id, product_id, product_name,
-                   unit, unit_price, quantity
+                   unit, unit_price, currency, quantity
             FROM order_items WHERE order_id = $1
             ORDER BY id
             """,

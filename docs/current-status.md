@@ -65,6 +65,10 @@ Implemented
 - Multiple saved addresses with list/select/add/update/delete/default operations
 - Explicit save consent and typed second-turn overwrite/profile-use confirmation
 - Dedicated saved-address ordinals and checkout value snapshots
+- Explicit COD or online payment-method selection
+- Provider-neutral online checkout with provisional orders and reservations
+- Durable fake-provider checkout, signed webhook simulation, and payment status
+- Idempotent payment retry, expiry/failure release, COD switching, and reconciliation
 
 The active cart is stored in PostgreSQL through a commerce-domain repository.
 `CommerceSession` carries a checkpointed snapshot refreshed by cart reads and

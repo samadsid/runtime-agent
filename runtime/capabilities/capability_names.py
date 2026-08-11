@@ -29,3 +29,8 @@ class CapabilityName(str, Enum):
     UPDATE_SAVED_ADDRESS = "update_saved_address"
     DELETE_SAVED_ADDRESS = "delete_saved_address"
     SET_DEFAULT_ADDRESS = "set_default_address"
+    SELECT_PAYMENT_METHOD = "select_payment_method"
+    START_ONLINE_PAYMENT = "start_online_payment"
+    RETRY_ONLINE_PAYMENT = "retry_online_payment"
+    SWITCH_ORDER_TO_CASH_ON_DELIVERY = "switch_order_to_cash_on_delivery"
+    VIEW_PAYMENT_STATUS = "view_payment_status"

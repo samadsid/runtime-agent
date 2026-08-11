@@ -34,6 +34,24 @@ class Settings(BaseSettings):
     CHECKPOINTER_BACKEND: Literal["memory", "postgres"]
     CUSTOMER_SUPPORT_PATH: str = Field(min_length=1)
     ALLOW_DEVELOPMENT_CUSTOMER_ID_HEADER: bool = False
+    APP_ENV: Literal["development", "test", "production"] = "development"
+    PAYMENT_PROVIDER: Literal["fake"] = "fake"
+    FAKE_PAYMENT_WEBHOOK_SECRET: str | None = None
+    FAKE_PAYMENT_BASE_URL: str = "http://localhost:8000"
+    PAYMENT_ATTEMPT_TTL_MINUTES: int = Field(default=15, ge=1)
+    PAYMENT_RECONCILIATION_BATCH_SIZE: int = Field(default=100, ge=1, le=1000)
+    PAYMENT_RECONCILIATION_INTERVAL_SECONDS: int = Field(default=30, ge=1)
+    PAYMENT_WEBHOOK_RATE_LIMIT_PER_MINUTE: int = Field(default=30, ge=1)
+    FAKE_PAYMENT_RATE_LIMIT_PER_MINUTE: int = Field(default=10, ge=1)
+
+    def validate_payment_configuration(self) -> None:
+        if self.APP_ENV == "production" and self.PAYMENT_PROVIDER == "fake":
+            raise RuntimeError("Fake payments are disabled in production.")
+        placeholders = {None, "", "replace-with-a-random-development-secret"}
+        if self.APP_ENV != "test" and self.FAKE_PAYMENT_WEBHOOK_SECRET in placeholders:
+            raise RuntimeError(
+                "A non-placeholder fake payment webhook secret is required."
+            )
 
     @property
     def database(self) -> DatabaseConfig:

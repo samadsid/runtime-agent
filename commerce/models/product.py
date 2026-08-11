@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -13,5 +12,6 @@ class Product(BaseModel):
     id: UUID
     name: str
     price: Decimal
+    currency: str = "INR"
     unit: str
     available: bool = True

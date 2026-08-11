@@ -5,6 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .order import PaymentMethod
 from .order_confirmation import StockRecoveryState
 
 
@@ -32,3 +33,4 @@ class CheckoutState(BaseModel):
     delivery_address: str | None = None
     pending_delivery_correction: DeliveryDetailField | None = None
     stock_recovery: StockRecoveryState | None = None
+    payment_method: PaymentMethod | None = PaymentMethod.CASH_ON_DELIVERY

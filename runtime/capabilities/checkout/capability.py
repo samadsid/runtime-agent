@@ -118,6 +118,7 @@ class CheckoutCapability(Capability[CommerceSession]):
             stage=CheckoutStage.REVIEWING_CART,
             source_cart_id=cart.id,
             source_cart_version=cart.version,
+            payment_method=None,
         )
         session = session.model_copy(update={"checkout": checkout})
         fragments = [

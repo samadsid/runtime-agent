@@ -70,6 +70,7 @@ class PostgresProductRepository(ProductRepository):
             id=row["id"],
             name=row["name"],
             price=row["price"],
+            currency=row["currency"],
             unit=row["unit"],
             available=row["available"],
         )

@@ -99,7 +99,7 @@ class GetOrderDetailsCapability(Capability[CommerceSession]):
                 id="order-created",
                 text=(
                     f"Created {order.created_at.isoformat()} | "
-                    f"Confirmed {order.confirmed_at.isoformat()}"
+                    f"Confirmed {order.confirmed_at.isoformat() if order.confirmed_at is not None else 'not yet'}"
                 ),
             ),
             *timeline,
@@ -113,8 +113,9 @@ class GetOrderDetailsCapability(Capability[CommerceSession]):
             order.phone_number,
             order.delivery_address,
             order.created_at.isoformat(),
-            order.confirmed_at.isoformat(),
         ]
+        if order.confirmed_at is not None:
+            protected.append(order.confirmed_at.isoformat())
         for item in order.items:
             protected.extend(
                 (

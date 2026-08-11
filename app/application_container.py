@@ -1,3 +1,5 @@
+from app.api.rate_limit import FixedWindowRateLimiter
+from app.jobs import PaymentReconciliationJob
 from commerce.models import CommerceSession
 from commerce.services import (
     CartService,
@@ -5,6 +7,8 @@ from commerce.services import (
     FulfilmentService,
     NonEmptyPhoneValidationPolicy,
     OrderService,
+    PaymentEventService,
+    PaymentService,
     SavedDeliveryDetailsService,
     SearchProductService,
 )
@@ -14,9 +18,11 @@ from infrastructure.database.repositories import (
     PostgresFulfilmentUnitOfWork,
     PostgresInventoryRepository,
     PostgresOrderRepository,
+    PostgresPaymentRepository,
     PostgresProductRepository,
     PostgresSavedDeliveryDetailsRepository,
 )
+from infrastructure.payments import FakePaymentProvider
 from runtime.capabilities import CapabilityRegistry
 from runtime.capabilities.abandon_checkout import AbandonCheckoutCapability
 from runtime.capabilities.accept_available_quantity import (
@@ -43,11 +49,17 @@ from runtime.capabilities.greeting import GreetingCapability
 from runtime.capabilities.list_orders import ListOrdersCapability
 from runtime.capabilities.list_saved_addresses import ListSavedAddressesCapability
 from runtime.capabilities.remove_from_cart import RemoveFromCartCapability
+from runtime.capabilities.retry_online_payment import RetryOnlinePaymentCapability
 from runtime.capabilities.save_delivery_details import SaveDeliveryDetailsCapability
 from runtime.capabilities.search_product import SearchProductCapability
+from runtime.capabilities.select_payment_method import SelectPaymentMethodCapability
 from runtime.capabilities.select_product import SelectProductCapability
 from runtime.capabilities.select_saved_address import SelectSavedAddressCapability
 from runtime.capabilities.set_default_address import SetDefaultAddressCapability
+from runtime.capabilities.start_online_payment import StartOnlinePaymentCapability
+from runtime.capabilities.switch_order_to_cash_on_delivery import (
+    SwitchOrderToCashOnDeliveryCapability,
+)
 from runtime.capabilities.update_cart_item_quantity import (
     UpdateCartItemQuantityCapability,
 )
@@ -56,6 +68,7 @@ from runtime.capabilities.update_delivery_details import (
 )
 from runtime.capabilities.update_saved_address import UpdateSavedAddressCapability
 from runtime.capabilities.view_cart import ViewCartCapability
+from runtime.capabilities.view_payment_status import ViewPaymentStatusCapability
 from runtime.domain.commerce_runtime import CommerceRuntime
 from runtime.graph import CommerceGraph
 from runtime.graph.adapters import ConversationStateAdapter, LangChainMessageAdapter
@@ -94,6 +107,7 @@ class ApplicationContainer:
     ):
 
         self.settings = settings
+        self.payment_rate_limiter = FixedWindowRateLimiter()
 
         self._build_infrastructure()
 
@@ -114,10 +128,12 @@ class ApplicationContainer:
         """
         Start application infrastructure.
         """
+        self.settings.validate_payment_configuration()
         await self.database_pool.connect()
         try:
             await self.graph_checkpointer.start()
             self._build_runtime()
+            self.payment_reconciliation_job.start()
         except Exception:
             await self.graph_checkpointer.close()
             await self.database_pool.close()
@@ -127,6 +143,7 @@ class ApplicationContainer:
         """
         Shutdown application infrastructure.
         """
+        await self.payment_reconciliation_job.stop()
         await self.graph_checkpointer.close()
         await self.database_pool.close()
 
@@ -154,6 +171,7 @@ class ApplicationContainer:
         self.order_repository = PostgresOrderRepository(
             pool=self.database_pool,
         )
+        self.payment_repository = PostgresPaymentRepository(pool=self.database_pool)
         self.inventory_repository = PostgresInventoryRepository(
             pool=self.database_pool,
         )
@@ -182,6 +200,28 @@ class ApplicationContainer:
         self.saved_delivery_details_service = SavedDeliveryDetailsService(
             repository=self.saved_delivery_details_repository,
             phone_policy=self.phone_validation_policy,
+        )
+        self.payment_provider = FakePaymentProvider(
+            pool=self.database_pool,
+            base_url=self.settings.FAKE_PAYMENT_BASE_URL,
+            webhook_secret=self.settings.FAKE_PAYMENT_WEBHOOK_SECRET or "test-secret",
+        )
+        self.payment_service = PaymentService(
+            repository=self.payment_repository,
+            provider=self.payment_provider,
+            ttl_minutes=self.settings.PAYMENT_ATTEMPT_TTL_MINUTES,
+            return_url=f"{self.settings.FAKE_PAYMENT_BASE_URL.rstrip('/')}/chat",
+        )
+        self.payment_event_service = PaymentEventService(
+            self.payment_repository, self.payment_provider
+        )
+        self.payment_reconciliation_job = PaymentReconciliationJob(
+            self.payment_repository,
+            self.payment_provider,
+            self.payment_event_service,
+            self.payment_service,
+            self.settings.PAYMENT_RECONCILIATION_BATCH_SIZE,
+            self.settings.PAYMENT_RECONCILIATION_INTERVAL_SECONDS,
         )
 
     def _build_prompting(self) -> None:
@@ -261,14 +301,43 @@ class ApplicationContainer:
             service=self.customer_order_service,
             support_path=self.settings.CUSTOMER_SUPPORT_PATH,
         )
-        self.list_saved_addresses_capability = ListSavedAddressesCapability(self.saved_delivery_details_service)
-        self.select_saved_address_capability = SelectSavedAddressCapability(self.saved_delivery_details_service)
-        self.save_delivery_details_capability = SaveDeliveryDetailsCapability(self.saved_delivery_details_service)
-        self.confirm_save_delivery_details_capability = ConfirmSaveDeliveryDetailsCapability(self.saved_delivery_details_service)
-        self.confirm_saved_profile_use_capability = ConfirmSavedProfileUseCapability(self.saved_delivery_details_service)
-        self.update_saved_address_capability = UpdateSavedAddressCapability(self.saved_delivery_details_service)
-        self.delete_saved_address_capability = DeleteSavedAddressCapability(self.saved_delivery_details_service)
-        self.set_default_address_capability = SetDefaultAddressCapability(self.saved_delivery_details_service)
+        self.list_saved_addresses_capability = ListSavedAddressesCapability(
+            self.saved_delivery_details_service
+        )
+        self.select_saved_address_capability = SelectSavedAddressCapability(
+            self.saved_delivery_details_service
+        )
+        self.save_delivery_details_capability = SaveDeliveryDetailsCapability(
+            self.saved_delivery_details_service
+        )
+        self.confirm_save_delivery_details_capability = (
+            ConfirmSaveDeliveryDetailsCapability(self.saved_delivery_details_service)
+        )
+        self.confirm_saved_profile_use_capability = ConfirmSavedProfileUseCapability(
+            self.saved_delivery_details_service
+        )
+        self.update_saved_address_capability = UpdateSavedAddressCapability(
+            self.saved_delivery_details_service
+        )
+        self.delete_saved_address_capability = DeleteSavedAddressCapability(
+            self.saved_delivery_details_service
+        )
+        self.set_default_address_capability = SetDefaultAddressCapability(
+            self.saved_delivery_details_service
+        )
+        self.select_payment_method_capability = SelectPaymentMethodCapability()
+        self.start_online_payment_capability = StartOnlinePaymentCapability(
+            self.payment_service
+        )
+        self.retry_online_payment_capability = RetryOnlinePaymentCapability(
+            self.payment_service
+        )
+        self.switch_order_to_cod_capability = SwitchOrderToCashOnDeliveryCapability(
+            self.payment_service
+        )
+        self.view_payment_status_capability = ViewPaymentStatusCapability(
+            self.payment_service
+        )
 
         self.capability_registry = CapabilityRegistry[CommerceSession](
             capabilities=[
@@ -298,6 +367,11 @@ class ApplicationContainer:
                 self.update_saved_address_capability,
                 self.delete_saved_address_capability,
                 self.set_default_address_capability,
+                self.select_payment_method_capability,
+                self.start_online_payment_capability,
+                self.retry_online_payment_capability,
+                self.switch_order_to_cod_capability,
+                self.view_payment_status_capability,
             ]
         )
 

@@ -127,7 +127,12 @@ def confirmation_review_outcome(
                 id="delivery-address", text=f"Address: {checkout.delivery_address}"
             ),
             ApprovedResponseFragment(
-                id="payment-method", text="Payment: CASH_ON_DELIVERY"
+                id="payment-method",
+                text=(
+                    f"Payment: {checkout.payment_method.value}"
+                    if checkout.payment_method is not None
+                    else "Payment method has not been selected."
+                ),
             ),
         )
     )
@@ -136,15 +141,23 @@ def confirmation_review_outcome(
             checkout.customer_name,
             checkout.phone_number,
             checkout.delivery_address,
-            "CASH_ON_DELIVERY",
+            *(
+                (checkout.payment_method.value,)
+                if checkout.payment_method is not None
+                else ()
+            ),
         )
     )
     return GeneratedExecutionOutcome(
         status=ExecutionStatus.SUCCESS,
         fragments=tuple(fragments),
         follow_up=FollowUpRequest(
-            id="confirm-corrected-order" if corrected else "confirm-order",
-            question="Please explicitly confirm that you want to place this order.",
+            id=("confirm-corrected-order" if corrected else "confirm-order")
+            if checkout.payment_method is not None
+            else "select-payment-method",
+            question="Please explicitly confirm that you want to place this order."
+            if checkout.payment_method is not None
+            else "Would you like to pay online or with cash on delivery?",
         ),
         protected_values=tuple(protected_values),
     )

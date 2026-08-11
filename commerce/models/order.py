@@ -11,6 +11,9 @@ from .fulfilment import FulfilmentActorType
 
 
 class OrderStatus(str, Enum):
+    AWAITING_PAYMENT = "AWAITING_PAYMENT"
+    PAYMENT_FAILED = "PAYMENT_FAILED"
+    PAYMENT_EXPIRED = "PAYMENT_EXPIRED"
     CONFIRMED = "CONFIRMED"
     PREPARING = "PREPARING"
     OUT_FOR_DELIVERY = "OUT_FOR_DELIVERY"
@@ -20,6 +23,7 @@ class OrderStatus(str, Enum):
 
 class PaymentMethod(str, Enum):
     CASH_ON_DELIVERY = "CASH_ON_DELIVERY"
+    ONLINE = "ONLINE"
 
 
 class OrderItem(BaseModel):
@@ -31,6 +35,7 @@ class OrderItem(BaseModel):
     product_name: str
     unit: str
     unit_price: Decimal = Field(allow_inf_nan=False)
+    currency: str = "INR"
     quantity: Decimal = Field(gt=0, allow_inf_nan=False)
 
 
@@ -59,6 +64,6 @@ class Order(BaseModel):
     phone_number: str
     delivery_address: str
     created_at: datetime
-    confirmed_at: datetime
+    confirmed_at: datetime | None
     items: tuple[OrderItem, ...] = ()
     status_history: tuple[OrderStatusHistory, ...] = ()

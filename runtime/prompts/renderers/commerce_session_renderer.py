@@ -77,6 +77,12 @@ class CommerceSessionRenderer:
             if checkout.pending_delivery_correction is not None
             else "None."
         )
+        if checkout.stage.value != "NONE":
+            lines.append(
+                f"Payment method: {checkout.payment_method.value}"
+                if checkout.payment_method is not None
+                else "Payment method: not selected"
+            )
         lines.append("Stock recovery:")
         recovery = checkout.stock_recovery
         if recovery is None:
