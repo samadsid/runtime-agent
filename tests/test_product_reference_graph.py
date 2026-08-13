@@ -47,7 +47,8 @@ class StubSearchService:
     def __init__(self, products: list[Product]) -> None:
         self.products = products
 
-    async def search(self, query: str) -> list[Product]:
+    async def search(self, tenant_id, query: str) -> list[Product]:
+        del tenant_id, query
         return self.products
 
 

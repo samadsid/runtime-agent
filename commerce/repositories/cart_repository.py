@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from decimal import Decimal
 from uuid import UUID
 
-from commerce.models import AcceptAvailableQuantityResult, Cart
+from commerce.models import AcceptAvailableQuantityResult, Cart, DirectCartResult
 
 
 class CartRepository(ABC):
@@ -63,6 +63,18 @@ class CartRepository(ABC):
         product_id: UUID,
         previously_offered: Decimal,
     ) -> AcceptAvailableQuantityResult: ...
+
+    @abstractmethod
+    async def add_direct_item(
+        self,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        product_id: UUID,
+        quantity: Decimal,
+        canonical_unit: str,
+        request_id: str,
+        request_fingerprint: str,
+    ) -> DirectCartResult: ...
 
 
 class CartNotFoundError(LookupError):

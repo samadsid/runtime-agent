@@ -171,6 +171,8 @@ def test_cart_capability_guidance_keeps_ordinal_namespaces_separate() -> None:
     rules_prompt = PromptLoader().load("rules.md")
 
     assert "add_to_cart" in commerce_prompt
+    assert "add_product_to_cart" in commerce_prompt
+    assert "select_product_for_pending_cart_addition" in commerce_prompt
     assert "view_cart" in commerce_prompt
     assert "remove_from_cart" in commerce_prompt
     assert "update_cart_item_quantity" in commerce_prompt

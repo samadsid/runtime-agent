@@ -50,6 +50,7 @@ class CheckoutCapability(Capability[CommerceSession]):
                     "checkout": CheckoutState(),
                     "pending_saved_profile_use": None,
                     "pending_cart_clear": None,
+                    "pending_cart_addition": None,
                 }
             )
             return CapabilityOutput(
@@ -68,7 +69,10 @@ class CheckoutCapability(Capability[CommerceSession]):
                 ),
             )
 
-        session_updates: dict[str, object] = {"cart_items": cart.items}
+        session_updates: dict[str, object] = {
+            "cart_items": cart.items,
+            "pending_cart_addition": None,
+        }
         pending = input.session.pending_cart_clear
         if pending is not None and (
             pending.cart_id != cart.id or pending.cart_version != cart.version

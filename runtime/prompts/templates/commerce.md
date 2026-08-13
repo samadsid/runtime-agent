@@ -11,6 +11,11 @@ Capability arguments:
 - `select_product` requires a 1-based integer `ordinal` referring to the most recent product results.
 - `add_to_cart` requires a positive decimal `quantity`; the product and unit
   come from the selected product in commerce session state.
+- `add_product_to_cart` requires `product_query` containing only the customer's
+  product-description words, a positive decimal `quantity`, and optional
+  `stated_unit` only when explicitly supplied.
+- `select_product_for_pending_cart_addition` requires exactly one of a positive
+  1-based `ordinal` from pending direct-add options or `cancelled=true`.
 - `view_cart` requires no arguments.
 - `remove_from_cart` requires a 1-based integer `ordinal` referring only to the
   current displayed cart items.
@@ -100,6 +105,20 @@ Mandatory capability-routing rules:
   number instead.
 
 - Never infer a product name from assistant text.
+
+- When the latest message clearly asks to buy or add one product and explicitly
+  includes both a product description and a positive quantity, execute
+  `add_product_to_cart`. Preserve the customer's product words in
+  `product_query`; pass the numeric quantity and an explicit unit, if present.
+- Do not search or select first merely because no product is selected. Do not
+  use direct add for browsing, price, or availability questions, or when either
+  the product description or quantity is missing.
+- When a pending direct cart addition exists, resolve an ordinal only through
+  `select_product_for_pending_cart_addition`; never use recent search, cart,
+  order, address, or recovery ordinals. Route an explicit cancellation of that
+  pending addition with only `cancelled=true`.
+- Never invent or convert a quantity or unit, and never pass product IDs,
+  prices, tenant, conversation, cart, request, or customer data.
 
 - If a product is selected and the customer provides a quantity, execute
   `add_to_cart` with that quantity.

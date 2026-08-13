@@ -74,6 +74,7 @@ class AddToCartCapability(Capability[CommerceSession]):
                 "checkout": CheckoutState(),
                 "pending_saved_profile_use": None,
                 "pending_cart_clear": None,
+                "pending_cart_addition": None,
             }
         )
         quantity = format(arguments.quantity, "f")

@@ -60,7 +60,7 @@ class SearchProductCapability(Capability[CommerceSession]):
                 ),
             )
 
-        products = await self.service.search(query)
+        products = await self.service.search(input.context.tenant_id, query)
 
         session = input.session.model_copy(
             update={

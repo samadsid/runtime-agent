@@ -43,6 +43,8 @@ Implemented
 - Search Product
 - Select Product by ordinal reference
 - Add selected product to cart
+- Add one uniquely resolved catalog product and quantity directly to the cart,
+  with checkpointed clarification for ambiguous matches
 - View ordered cart items
 - Remove cart item by cart ordinal
 - Update a persisted cart item's quantity by cart ordinal or an exact unique

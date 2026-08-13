@@ -43,6 +43,20 @@ class CommerceSessionRenderer:
                 f"Reviewed cart version: {session.pending_cart_clear.cart_version}"
             )
 
+        lines.append("Pending direct cart addition (separate ordinal namespace):")
+        pending_addition = session.pending_cart_addition
+        if pending_addition is None:
+            lines.append("None.")
+        else:
+            lines.append(f"Quantity: {format(pending_addition.quantity, 'f')}")
+            lines.append(
+                f"Stated unit: {pending_addition.stated_unit or 'not provided'}"
+            )
+            for ordinal, option in enumerate(pending_addition.options, 1):
+                lines.append(
+                    f"{ordinal}. {option.display_name} — {option.canonical_unit}"
+                )
+
         checkout = session.checkout
         lines.append("Checkout state:")
         lines.append(f"Stage: {checkout.stage.value}")
@@ -98,13 +112,15 @@ class CommerceSessionRenderer:
                     f"{shortage.unit}"
                 )
             lines.append("Recovery choices (separate ordinal namespace):")
-            for option in recovery.options:
+            for recovery_option in recovery.options:
                 target = ""
-                if option.shortage_ordinal is not None:
-                    target += f"; shortage ordinal {option.shortage_ordinal}"
-                if option.cart_ordinal is not None:
-                    target += f"; cart ordinal {option.cart_ordinal}"
-                lines.append(f"{option.ordinal}. {option.action.value}{target}")
+                if recovery_option.shortage_ordinal is not None:
+                    target += f"; shortage ordinal {recovery_option.shortage_ordinal}"
+                if recovery_option.cart_ordinal is not None:
+                    target += f"; cart ordinal {recovery_option.cart_ordinal}"
+                lines.append(
+                    f"{recovery_option.ordinal}. {recovery_option.action.value}{target}"
+                )
 
         lines.append("Recent order results:")
         if session.recent_order_results:

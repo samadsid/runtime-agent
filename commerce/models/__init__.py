@@ -4,6 +4,13 @@ from .cart_item import CartItem
 from .checkout import CheckoutStage, CheckoutState, DeliveryDetailField
 from .commerce_session import CommerceSession
 from .customer_order import OrderSummary, PendingOrderCancellation
+from .direct_cart import (
+    DirectCartResult,
+    DirectCartResultKind,
+    PendingCartAddition,
+    PendingCartProductOption,
+    ProductResolutionKind,
+)
 from .fulfilment import (
     FulfilmentActor,
     FulfilmentActorType,
@@ -70,6 +77,8 @@ __all__ = [
     "CustomerOnboardingState",
     "CustomerProfileProjection",
     "DeliveryDetailField",
+    "DirectCartResult",
+    "DirectCartResultKind",
     "FulfilmentActor",
     "FulfilmentActorType",
     "InventoryBalance",
@@ -88,11 +97,14 @@ __all__ = [
     "PaymentAttemptStatus",
     "PaymentMethod",
     "PaymentWebhookEvent",
+    "PendingCartAddition",
     "PendingCartClear",
+    "PendingCartProductOption",
     "PendingOrderCancellation",
     "PendingSavedDetailsSave",
     "PendingSavedProfileUse",
     "Product",
+    "ProductResolutionKind",
     "ProfileField",
     "ProviderCheckout",
     "ProviderPaymentStatus",

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from app.api.rate_limit import FixedWindowRateLimiter
 from app.jobs import (
     ChannelInboundProcessor,
@@ -8,6 +10,7 @@ from commerce.models import CommerceSession
 from commerce.services import (
     CartService,
     CustomerOrderService,
+    DirectCartService,
     FulfilmentService,
     NonEmptyPhoneValidationPolicy,
     OrderService,
@@ -38,6 +41,7 @@ from runtime.capabilities.abandon_checkout import AbandonCheckoutCapability
 from runtime.capabilities.accept_available_quantity import (
     AcceptAvailableQuantityCapability,
 )
+from runtime.capabilities.add_product_to_cart import AddProductToCartCapability
 from runtime.capabilities.add_to_cart import AddToCartCapability
 from runtime.capabilities.cancel_order import CancelOrderCapability
 from runtime.capabilities.checkout import CheckoutCapability
@@ -70,6 +74,9 @@ from runtime.capabilities.save_delivery_details import SaveDeliveryDetailsCapabi
 from runtime.capabilities.search_product import SearchProductCapability
 from runtime.capabilities.select_payment_method import SelectPaymentMethodCapability
 from runtime.capabilities.select_product import SelectProductCapability
+from runtime.capabilities.select_product_for_pending_cart_addition import (
+    SelectProductForPendingCartAdditionCapability,
+)
 from runtime.capabilities.select_saved_address import SelectSavedAddressCapability
 from runtime.capabilities.set_default_address import SetDefaultAddressCapability
 from runtime.capabilities.skip_customer_onboarding import (
@@ -242,6 +249,9 @@ class ApplicationContainer:
         )
 
         self.cart_service = CartService(repository=self.cart_repository)
+        self.direct_cart_service = DirectCartService(
+            self.product_repository, self.cart_repository
+        )
         self.order_service = OrderService(repository=self.order_repository)
         self.fulfilment_service = FulfilmentService(
             unit_of_work_factory=lambda: PostgresFulfilmentUnitOfWork(
@@ -330,6 +340,15 @@ class ApplicationContainer:
 
         self.add_to_cart_capability = AddToCartCapability(
             service=self.cart_service,
+        )
+        self.add_product_to_cart_capability = AddProductToCartCapability(
+            self.direct_cart_service
+        )
+        self.select_pending_cart_product_capability = (
+            SelectProductForPendingCartAdditionCapability(
+                self.direct_cart_service,
+                ttl=timedelta(minutes=self.settings.PENDING_CART_ADDITION_TTL_MINUTES),
+            )
         )
 
         self.view_cart_capability = ViewCartCapability(service=self.cart_service)
@@ -420,6 +439,8 @@ class ApplicationContainer:
                 self.search_product_capability,
                 self.select_product_capability,
                 self.add_to_cart_capability,
+                self.add_product_to_cart_capability,
+                self.select_pending_cart_product_capability,
                 self.view_cart_capability,
                 self.remove_from_cart_capability,
                 self.update_cart_item_quantity_capability,

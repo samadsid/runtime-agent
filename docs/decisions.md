@@ -469,3 +469,23 @@ Returning-customer recognition needs a trusted durable lookup while raw phone an
 address values must stay out of ordinary prompts. Checkpoint state owns the
 uncommitted proposal; explicit confirmation performs one atomic profile, address,
 consent, and idempotency write without changing the frozen graph.
+
+---
+
+## ADR-029
+
+Resolve direct product-and-quantity cart intent through deterministic commerce
+policies and an isolated pending ordinal namespace.
+
+Status
+
+Accepted
+
+Reason
+
+The planner extracts only the customer-supplied product query, quantity, and
+optional unit. Tenant-scoped catalog resolution auto-selects only an exact
+normalized name or a sole candidate; ambiguity is checkpointed without cart
+mutation. The repository atomically revalidates the product, applies existing
+add-or-replace semantics, and records the trusted request receipt without
+changing the frozen graph or allowing capabilities to call one another.

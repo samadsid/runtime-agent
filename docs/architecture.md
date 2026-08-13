@@ -167,6 +167,12 @@ active cart. PostgreSQL is authoritative for carts; cart capabilities refresh
 the snapshot after every persisted read or mutation. The snapshot is restored
 with the session through LangGraph checkpoints for planning context.
 
+`CommerceSession.pending_cart_addition` owns short-lived options for an
+ambiguous direct product-and-quantity request. Its ordinals are isolated from
+all other option namespaces. PostgreSQL remains authoritative for product
+availability and cart mutation, and the trusted request receipt is committed
+atomically with a successful direct add.
+
 `CommerceSession.checkout` is short-term workflow state. It records the
 reviewed source cart and exact cart version, collection stage, delivery details,
 and any current stock-recovery choices until the workflow is reset. It is

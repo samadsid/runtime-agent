@@ -10,6 +10,7 @@ class ProductRepository(ABC):
     @abstractmethod
     async def search(
         self,
+        tenant_id: UUID,
         query: str,
     ) -> list[Product]:
         """
@@ -20,11 +21,17 @@ class ProductRepository(ABC):
     @abstractmethod
     async def get_by_id(
         self,
+        tenant_id: UUID,
         product_id: UUID,
     ) -> Product | None:
         """
         Retrieve a product by its identifier.
         """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def search_candidates(self, tenant_id: UUID, query: str) -> list[Product]:
+        """Return tenant-scoped candidates, including unavailable products."""
         raise NotImplementedError
 
     @abstractmethod

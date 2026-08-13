@@ -13,7 +13,9 @@ from commerce.models import (
     OrderStatus,
     OrderSummary,
     PaymentMethod,
+    PendingCartAddition,
     PendingCartClear,
+    PendingCartProductOption,
     PendingOrderCancellation,
     Product,
     StockRecoveryAction,
@@ -41,6 +43,19 @@ def test_configured_serializer_round_trips_durable_commerce_models(
             cart_id=(cart_id := uuid4()),
             cart_version=4,
             requested_at=datetime.now(timezone.utc),
+        ),
+        pending_cart_addition=PendingCartAddition(
+            options=(
+                PendingCartProductOption(
+                    product_id=product.id,
+                    display_name=product.name,
+                    canonical_unit=product.unit,
+                ),
+            ),
+            quantity=Decimal(3),
+            stated_unit="kg",
+            created_at=datetime.now(timezone.utc),
+            source_request_id="request-1",
         ),
         checkout=CheckoutState(
             stage=CheckoutStage.COLLECTING_DETAILS,
@@ -93,6 +108,7 @@ def test_configured_serializer_round_trips_durable_commerce_models(
     assert restored.cart_items[0].quantity == Decimal(2)
     assert restored.pending_cart_clear == session.pending_cart_clear
     assert restored.pending_cart_clear.cart_id == cart_id
+    assert restored.pending_cart_addition == session.pending_cart_addition
     assert restored.checkout == session.checkout
     assert restored.checkout.stage is CheckoutStage.COLLECTING_DETAILS
     assert restored.checkout.payment_method is PaymentMethod.ONLINE

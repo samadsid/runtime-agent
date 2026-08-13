@@ -9,6 +9,7 @@ from commerce.models import (
     Cart,
     CartItem,
     CartStatus,
+    DirectCartResult,
     FulfilmentActor,
     Order,
     OrderConfirmed,
@@ -54,6 +55,7 @@ class InMemoryCartRepository(CartRepository):
         self.sellable_quantities: dict[UUID, Decimal] = {
             product_id: Decimal(1000000) for product_id in self.products
         }
+        self.direct_receipts: dict[tuple[UUID, str], tuple[str, DirectCartResult]] = {}
 
     async def get_or_create_active_cart(
         self, tenant_id: UUID, conversation_id: UUID
@@ -147,9 +149,7 @@ class InMemoryCartRepository(CartRepository):
             raise CartNotFoundError
         if cart.version != expected_version:
             raise StaleCartError
-        updated = cart.model_copy(
-            update={"items": (), "version": cart.version + 1}
-        )
+        updated = cart.model_copy(update={"items": (), "version": cart.version + 1})
         self.carts[(tenant_id, conversation_id)] = updated
         return updated
 
@@ -211,12 +211,45 @@ class InMemoryCartRepository(CartRepository):
             quantity=accepted,
         )
 
+    async def add_direct_item(
+        self,
+        tenant_id,
+        conversation_id,
+        product_id,
+        quantity,
+        canonical_unit,
+        request_id,
+        request_fingerprint,
+    ):
+        from commerce.models import DirectCartResultKind
+
+        del canonical_unit
+        receipt_key = (tenant_id, request_id)
+        existing = self.direct_receipts.get(receipt_key)
+        if existing is not None:
+            if existing[0] != request_fingerprint:
+                raise ValueError("request fingerprint mismatch")
+            return existing[1].model_copy(update={"idempotent": True})
+        product = self.products.get(product_id)
+        if product is None or not product.available:
+            return DirectCartResult(kind=DirectCartResultKind.UNAVAILABLE)
+        cart = await self.get_or_create_active_cart_and_add_or_replace_item(
+            tenant_id, conversation_id, product_id, quantity
+        )
+        result = DirectCartResult(
+            kind=DirectCartResultKind.ADDED, product=product, cart=cart
+        )
+        self.direct_receipts[receipt_key] = (request_fingerprint, result)
+        return result
+
     def _replace(self, cart: Cart, product_id: UUID, quantity: Decimal) -> Cart:
         product = self.products[product_id]
         item = CartItem(product=product, quantity=quantity)
         items = list(cart.items)
         for index, existing in enumerate(items):
             if existing.product.id == product_id:
+                if existing.quantity == quantity:
+                    return cart
                 items[index] = item
                 break
         else:
@@ -360,9 +393,7 @@ class InMemoryOrderRepository(OrderRepository):
             update={"status_history": await self.get_status_history(order.id)}
         )
 
-    async def get_latest_for_conversation(
-        self, conversation_id: UUID
-    ) -> Order | None:
+    async def get_latest_for_conversation(self, conversation_id: UUID) -> Order | None:
         matches = [
             order for order in self.orders if order.conversation_id == conversation_id
         ]
@@ -404,9 +435,7 @@ class InMemoryOrderRepository(OrderRepository):
                 created_at=datetime.now(timezone.utc),
             )
         )
-        transitioned = order.model_copy(
-            update={"status": target_status}
-        ).model_copy(
+        transitioned = order.model_copy(update={"status": target_status}).model_copy(
             update={"status_history": await self.get_status_history(order_id)}
         )
         self.orders[index] = transitioned

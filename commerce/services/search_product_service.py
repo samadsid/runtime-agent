@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from commerce.models.product import Product
 from commerce.repositories.product_repository import ProductRepository
 
@@ -19,6 +21,7 @@ class SearchProductService:
 
     async def search(
         self,
+        tenant_id: UUID,
         query: str,
     ) -> list[Product]:
         """
@@ -30,4 +33,4 @@ class SearchProductService:
         if not query:
             return []
 
-        return await self._product_repository.search(query)
+        return await self._product_repository.search(tenant_id, query)

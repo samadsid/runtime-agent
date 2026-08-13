@@ -7,6 +7,8 @@ class CapabilityName(str, Enum):
     SELECT_PRODUCT = "select_product"
     PRODUCT_DETAILS = "product_details"
     ADD_TO_CART = "add_to_cart"
+    ADD_PRODUCT_TO_CART = "add_product_to_cart"
+    SELECT_PRODUCT_FOR_PENDING_CART_ADDITION = "select_product_for_pending_cart_addition"
     VIEW_CART = "view_cart"
     REMOVE_FROM_CART = "remove_from_cart"
     UPDATE_CART_ITEM_QUANTITY = "update_cart_item_quantity"

@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     FAKE_PAYMENT_WEBHOOK_SECRET: str | None = None
     FAKE_PAYMENT_BASE_URL: str = "http://localhost:8000"
     PAYMENT_ATTEMPT_TTL_MINUTES: int = Field(default=15, ge=1)
+    PENDING_CART_ADDITION_TTL_MINUTES: int = Field(default=15, ge=1, le=1440)
     PAYMENT_RECONCILIATION_BATCH_SIZE: int = Field(default=100, ge=1, le=1000)
     PAYMENT_RECONCILIATION_INTERVAL_SECONDS: int = Field(default=30, ge=1)
     PAYMENT_WEBHOOK_RATE_LIMIT_PER_MINUTE: int = Field(default=30, ge=1)

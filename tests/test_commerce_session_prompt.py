@@ -35,6 +35,8 @@ def test_commerce_session_renderer_preserves_result_ordinals() -> None:
         "None.\n"
         "Pending cart clear:\n"
         "None.\n"
+        "Pending direct cart addition (separate ordinal namespace):\n"
+        "None.\n"
         "Checkout state:\n"
         "Stage: NONE\n"
         "Source cart: missing\n"
