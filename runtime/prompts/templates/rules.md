@@ -25,9 +25,18 @@ Product-reference rules:
 
 Saved-delivery rules:
 
+- Onboarding proposals are checkpointed but not saved until explicit review
+  confirmation routes to `confirm_customer_onboarding` with no arguments.
+- Extract onboarding fields only from the latest customer message and typed
+  pending state. Omit uncertain values and ask one question for all unresolved
+  fields.
+
 - Saved-address ordinals refer only to the most recent structured saved-address list.
 - Never reuse a saved-address ordinal as a product, cart, stock-recovery, order, or order-item ordinal.
 - Use `list_saved_addresses` when a customer asks to see reusable delivery addresses.
+- Use `view_saved_delivery_profile` when a customer asks what saved name, phone,
+  address, or delivery details are on file. The capability must retrieve these
+  values; never infer them from the safe projection or checkout state.
 - Use `select_saved_address` only while checkout is collecting or reviewing details and a valid saved-address ordinal exists.
 - Use `save_delivery_details` only for a request to save. Set `consent` to true only when the latest customer message explicitly agrees to saving.
 - Route an explicit yes or no for pending save confirmation to `confirm_save_delivery_details` with `confirmed` true or false.

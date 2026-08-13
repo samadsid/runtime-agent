@@ -228,6 +228,12 @@ are typed checkpointed workflow state, while selected delivery values are copied
 into checkout as snapshots. Saved-address changes never alter an existing
 checkout review or immutable order snapshot.
 
+First-visit customer onboarding reuses these tables. Before planner invocation,
+`CommerceRuntime` hydrates a safe projection containing only profile availability,
+completion, preferred name, and missing-field flags. The commerce session checkpoints
+the collection/review stage and uncommitted proposal; only explicit confirmation
+persists the profile, consent, and initial address atomically.
+
 These are intentionally separate.
 
 ## External Conversational Channels

@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from commerce.models import ChannelName
+from commerce.models import ChannelName, CustomerProfileProjection
 from runtime.contracts import CustomerChannelContext
 
 SessionT = TypeVar("SessionT")
@@ -17,6 +17,9 @@ class ExecutionContext(CustomerChannelContext):
     channel: ChannelName = ChannelName.DEVELOPMENT_HTTP
     channel_customer_id: str | None = None
     request_id: str | None = None
+    profile: CustomerProfileProjection = Field(
+        default_factory=CustomerProfileProjection
+    )
 
 
 class CapabilityInput(BaseModel, Generic[SessionT]):

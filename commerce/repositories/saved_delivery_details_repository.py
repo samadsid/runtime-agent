@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 from uuid import UUID
 
 from commerce.models import ChannelName, SavedDeliveryAddress, SavedDeliveryProfile
 
 
 class SavedDeliveryDetailsRepository(ABC):
+    async def complete_onboarding(
+        self,
+        tenant_id: UUID,
+        channel: ChannelName,
+        channel_customer_id: str,
+        customer_name: str,
+        phone_number: str,
+        delivery_address: str,
+        consent_version: str,
+        consented_at: datetime,
+        request_id: str,
+        address_label: str,
+    ) -> SavedDeliveryProfile:
+        raise NotImplementedError
+
     @abstractmethod
     async def get_profile(
         self, tenant_id: UUID, channel: ChannelName, channel_customer_id: str

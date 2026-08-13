@@ -13,6 +13,8 @@ from commerce.models import (
     CheckoutStage,
     CheckoutState,
     CommerceSession,
+    CustomerOnboardingState,
+    OnboardingStage,
     Order,
     OrderItem,
     OrderStatusHistory,
@@ -44,6 +46,8 @@ class GraphCheckpointer:
             allowed_msgpack_modules=(
                 AsyncpgUUID,
                 CommerceSession,
+                CustomerOnboardingState,
+                OnboardingStage,
                 CheckoutStage,
                 CheckoutState,
                 Cart,

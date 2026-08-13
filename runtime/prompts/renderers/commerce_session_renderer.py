@@ -149,4 +149,24 @@ class CommerceSessionRenderer:
             else "None."
         )
 
+        onboarding = session.customer_onboarding
+        if onboarding != type(onboarding)():
+            lines.append("Customer onboarding:")
+            lines.append(f"Stage: {onboarding.stage.value}")
+            lines.append(
+                "Name: provided"
+                if onboarding.pending_customer_name is not None
+                else "Name: missing"
+            )
+            lines.append(
+                "Phone: provided"
+                if onboarding.pending_phone_number is not None
+                else "Phone: missing"
+            )
+            lines.append(
+                "Address: provided"
+                if onboarding.pending_delivery_address is not None
+                else "Address: missing"
+            )
+
         return "\n".join(lines)

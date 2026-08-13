@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from commerce.models import CommerceSession
+from commerce.models import CommerceSession, CustomerProfileProjection
 from runtime.contracts import Message
 from runtime.llm import LLMProvider
 from runtime.planner.decision import PlannerDecision
@@ -31,11 +31,13 @@ class Planner:
         self,
         messages: list[Message],
         session: CommerceSession,
+        profile: CustomerProfileProjection | None = None,
     ) -> PlannerResponse:
 
         request = self._prompt_builder.build(
             messages,
             session,
+            profile or CustomerProfileProjection(),
         )
 
         decision = await self._llm_provider.invoke(

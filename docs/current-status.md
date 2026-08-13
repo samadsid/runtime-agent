@@ -66,6 +66,8 @@ Implemented
 - Explicit save consent and typed second-turn overwrite/profile-use confirmation
 - Dedicated saved-address ordinals and checkout value snapshots
 - Explicit COD or online payment-method selection
+- First-visit trusted-channel onboarding with combined detail collection,
+  checkpointed review, explicit consent, and atomic saved-profile completion
 - Provider-neutral online checkout with provisional orders and reservations
 - Durable fake-provider checkout, signed webhook simulation, and payment status
 - Idempotent payment retry, expiry/failure release, COD switching, and reconciliation
@@ -133,6 +135,10 @@ message-only conversation contract.
 Trusted channel context is transient and excluded from checkpoint state. Saved
 address projections and minimal pending confirmation workflows are checkpointed;
 durable profiles and addresses remain PostgreSQL-authoritative.
+
+Onboarding proposals remain checkpointed only until confirmation or skip. Returning
+customers are recognized through a pre-planner safe projection that excludes durable
+phone numbers and addresses.
 
 ---
 

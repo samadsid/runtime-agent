@@ -12,6 +12,45 @@ class ChannelName(str, Enum):
     TWILIO_WHATSAPP = "twilio_whatsapp"
 
 
+class OnboardingStatus(str, Enum):
+    INCOMPLETE = "INCOMPLETE"
+    COMPLETED = "COMPLETED"
+
+
+class OnboardingStage(str, Enum):
+    NOT_REQUIRED = "NOT_REQUIRED"
+    NOT_STARTED = "NOT_STARTED"
+    COLLECTING_DETAILS = "COLLECTING_DETAILS"
+    REVIEWING_DETAILS = "REVIEWING_DETAILS"
+    COMPLETED = "COMPLETED"
+    SKIPPED = "SKIPPED"
+
+
+class ProfileField(str, Enum):
+    CUSTOMER_NAME = "customer_name"
+    PHONE_NUMBER = "phone_number"
+    DELIVERY_ADDRESS = "delivery_address"
+
+
+class CustomerOnboardingState(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    stage: OnboardingStage = OnboardingStage.NOT_STARTED
+    pending_customer_name: str | None = None
+    pending_phone_number: str | None = None
+    pending_delivery_address: str | None = None
+
+
+class CustomerProfileProjection(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    profile_available: bool = False
+    onboarding_completed: bool = False
+    preferred_name: str | None = None
+    missing_fields: tuple[ProfileField, ...] = ()
+    hydration_failed: bool = False
+
+
 class SavedDeliveryProfile(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -21,6 +60,11 @@ class SavedDeliveryProfile(BaseModel):
     channel_customer_id: str
     customer_name: str | None = None
     phone_number: str | None = None
+    phone_verified: bool = False
+    onboarding_status: OnboardingStatus = OnboardingStatus.INCOMPLETE
+    profile_consent_version: str | None = None
+    profile_consented_at: datetime | None = None
+    onboarding_request_id: str | None = None
     created_at: datetime
     updated_at: datetime
 

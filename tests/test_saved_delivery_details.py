@@ -33,6 +33,9 @@ from runtime.capabilities.list_saved_addresses import ListSavedAddressesCapabili
 from runtime.capabilities.save_delivery_details import SaveDeliveryDetailsCapability
 from runtime.capabilities.select_saved_address import SelectSavedAddressCapability
 from runtime.capabilities.update_saved_address import UpdateSavedAddressCapability
+from runtime.capabilities.view_saved_delivery_profile import (
+    ViewSavedDeliveryProfileCapability,
+)
 from runtime.contracts import ExecutionStatus
 from runtime.graph.memory import GraphCheckpointer
 from runtime.prompts.renderers import CommerceSessionRenderer
@@ -278,6 +281,39 @@ async def test_explicit_consent_saves_and_lists_default_first(saved_fixture) -> 
     assert [option.label for option in listed.session.recent_saved_addresses] == [
         "Home",
         "Office",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_view_saved_profile_returns_persisted_phone_and_all_details(
+    saved_fixture,
+) -> None:
+    _, service, context = saved_fixture
+    await service.save_details(
+        context.tenant_id,
+        context.channel,
+        context.channel_customer_id,
+        "Samad",
+        "9560717170",
+        "Home",
+        "B-68 New Zafrabad",
+        True,
+    )
+    capability = ViewSavedDeliveryProfileCapability(service)
+
+    phone = await capability.execute(
+        capability_input(CommerceSession(), context, {"field": "phone_number"})
+    )
+    all_details = await capability.execute(
+        capability_input(CommerceSession(), context, {"field": "all"})
+    )
+
+    assert phone.outcome.fragments[0].text == "Saved phone number: 9560717170"
+    assert phone.outcome.protected_values == ("9560717170",)
+    assert [fragment.id for fragment in all_details.outcome.fragments] == [
+        "saved-customer-name",
+        "saved-customer-phone",
+        "saved-profile-address-1",
     ]
 
 

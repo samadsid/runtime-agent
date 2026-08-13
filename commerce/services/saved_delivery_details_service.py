@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
-from commerce.models import ChannelName, SavedDeliveryAddress, SavedDeliveryProfile
+from commerce.models import (
+    ChannelName,
+    CustomerProfileProjection,
+    OnboardingStatus,
+    ProfileField,
+    SavedDeliveryAddress,
+    SavedDeliveryProfile,
+)
 from commerce.repositories import SavedDeliveryDetailsRepository
 
 from .phone_validation import PhoneValidationPolicy
@@ -17,6 +25,9 @@ class GuestSavedDeliveryDetailsError(PermissionError):
 
 
 class SavedDeliveryDetailsService:
+    ONBOARDING_CONSENT_VERSION = "saved-delivery-profile/v1"
+    ONBOARDING_ADDRESS_LABEL = "Home"
+
     def __init__(
         self,
         repository: SavedDeliveryDetailsRepository,
@@ -35,6 +46,95 @@ class SavedDeliveryDetailsService:
             return None
         return await self._repository.get_profile(
             tenant_id, channel, channel_customer_id
+        )
+
+    async def get_profile_projection(
+        self,
+        tenant_id: UUID,
+        channel: ChannelName,
+        channel_customer_id: str | None,
+    ) -> CustomerProfileProjection:
+        if channel_customer_id is None:
+            return CustomerProfileProjection()
+        profile = await self.get_profile(tenant_id, channel, channel_customer_id)
+        if profile is None:
+            return CustomerProfileProjection(
+                missing_fields=(
+                    ProfileField.CUSTOMER_NAME,
+                    ProfileField.PHONE_NUMBER,
+                    ProfileField.DELIVERY_ADDRESS,
+                )
+            )
+        addresses = await self._repository.list_addresses(tenant_id, profile.id)
+        missing: list[ProfileField] = []
+        if profile.customer_name is None:
+            missing.append(ProfileField.CUSTOMER_NAME)
+        if profile.phone_number is None:
+            missing.append(ProfileField.PHONE_NUMBER)
+        if not addresses:
+            missing.append(ProfileField.DELIVERY_ADDRESS)
+        completed = (
+            profile.onboarding_status is OnboardingStatus.COMPLETED
+            and profile.profile_consent_version is not None
+            and profile.profile_consented_at is not None
+            and not missing
+        )
+        return CustomerProfileProjection(
+            profile_available=True,
+            onboarding_completed=completed,
+            preferred_name=profile.customer_name,
+            missing_fields=tuple(missing),
+        )
+
+    async def get_onboarding_values(
+        self,
+        tenant_id: UUID,
+        channel: ChannelName,
+        channel_customer_id: str | None,
+    ) -> tuple[str | None, str | None, str | None]:
+        profile, addresses = await self.list_addresses(
+            tenant_id, channel, channel_customer_id
+        )
+        default = next((item for item in addresses if item.is_default), None)
+        address = default or (addresses[0] if addresses else None)
+        return (
+            profile.customer_name if profile else None,
+            profile.phone_number if profile else None,
+            address.delivery_address if address else None,
+        )
+
+    async def complete_onboarding(
+        self,
+        tenant_id: UUID,
+        channel: ChannelName,
+        channel_customer_id: str | None,
+        customer_name: str,
+        phone_number: str,
+        delivery_address: str,
+        consented_at: datetime,
+        request_id: str | None,
+    ) -> SavedDeliveryProfile:
+        customer_id = self._require_customer(channel_customer_id)
+        if request_id is None or not request_id.strip():
+            raise InvalidSavedDeliveryDetailsError("A trusted request ID is required.")
+        name, phone, _, address = self.validate_details(
+            customer_name,
+            phone_number,
+            self.ONBOARDING_ADDRESS_LABEL,
+            delivery_address,
+        )
+        assert name is not None and phone is not None and address is not None
+        return await self._repository.complete_onboarding(
+            tenant_id,
+            channel,
+            customer_id,
+            name,
+            phone,
+            address,
+            self.ONBOARDING_CONSENT_VERSION,
+            consented_at,
+            request_id,
+            self.ONBOARDING_ADDRESS_LABEL,
         )
 
     async def list_addresses(

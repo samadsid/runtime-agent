@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from commerce.models import CommerceSession
+from commerce.models import CommerceSession, CustomerProfileProjection
 from runtime.capabilities import CapabilityRegistry
 from runtime.contracts import (
     Message,
@@ -40,6 +40,7 @@ class PlannerPromptBuilder(PromptBuilder):
         self,
         messages: list[Message],
         session: CommerceSession,
+        profile: CustomerProfileProjection | None = None,
     ) -> LLMRequest:
 
         commerce_prompt = self._loader.load("commerce.md").replace(
@@ -62,6 +63,20 @@ class PlannerPromptBuilder(PromptBuilder):
         planner_prompt = planner_prompt.replace(
             "{{commerce_session}}",
             self._commerce_session_renderer.render(session),
+        )
+        projection = profile or CustomerProfileProjection()
+        planner_prompt += "\n\nCustomer profile projection:\n" + "\n".join(
+            (
+                f"Profile available: {projection.profile_available}",
+                f"Onboarding completed: {projection.onboarding_completed}",
+                f"Preferred name: {projection.preferred_name or 'None.'}",
+                "Missing fields: "
+                + (
+                    ", ".join(field.value for field in projection.missing_fields)
+                    or "None."
+                ),
+                f"Hydration failed: {projection.hydration_failed}",
+            )
         )
 
         return LLMRequest(

@@ -8,7 +8,7 @@ from langgraph.channels import UntrackedValue
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-from commerce.models import CommerceSession
+from commerce.models import CommerceSession, CustomerProfileProjection
 from runtime.contracts import CustomerChannelContext, ExecutionOutcome
 from runtime.planner.response import PlannerResponse
 
@@ -29,6 +29,11 @@ class CommerceGraphState(BaseModel):
         CustomerChannelContext | None,
         UntrackedValue,
     ] = None
+
+    customer_profile_projection: Annotated[
+        CustomerProfileProjection,
+        UntrackedValue,
+    ] = Field(default_factory=CustomerProfileProjection)
 
     messages: Annotated[
         list[BaseMessage],

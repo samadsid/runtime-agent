@@ -42,8 +42,14 @@ from runtime.capabilities.add_to_cart import AddToCartCapability
 from runtime.capabilities.cancel_order import CancelOrderCapability
 from runtime.capabilities.checkout import CheckoutCapability
 from runtime.capabilities.clear_cart import ClearCartCapability
+from runtime.capabilities.collect_customer_onboarding_details import (
+    CollectCustomerOnboardingDetailsCapability,
+)
 from runtime.capabilities.collect_delivery_details import (
     CollectDeliveryDetailsCapability,
+)
+from runtime.capabilities.confirm_customer_onboarding import (
+    ConfirmCustomerOnboardingCapability,
 )
 from runtime.capabilities.confirm_order import ConfirmOrderCapability
 from runtime.capabilities.confirm_save_delivery_details import (
@@ -66,6 +72,12 @@ from runtime.capabilities.select_payment_method import SelectPaymentMethodCapabi
 from runtime.capabilities.select_product import SelectProductCapability
 from runtime.capabilities.select_saved_address import SelectSavedAddressCapability
 from runtime.capabilities.set_default_address import SetDefaultAddressCapability
+from runtime.capabilities.skip_customer_onboarding import (
+    SkipCustomerOnboardingCapability,
+)
+from runtime.capabilities.start_customer_onboarding import (
+    StartCustomerOnboardingCapability,
+)
 from runtime.capabilities.start_online_payment import StartOnlinePaymentCapability
 from runtime.capabilities.switch_order_to_cash_on_delivery import (
     SwitchOrderToCashOnDeliveryCapability,
@@ -79,6 +91,9 @@ from runtime.capabilities.update_delivery_details import (
 from runtime.capabilities.update_saved_address import UpdateSavedAddressCapability
 from runtime.capabilities.view_cart import ViewCartCapability
 from runtime.capabilities.view_payment_status import ViewPaymentStatusCapability
+from runtime.capabilities.view_saved_delivery_profile import (
+    ViewSavedDeliveryProfileCapability,
+)
 from runtime.domain.commerce_runtime import CommerceRuntime
 from runtime.graph import CommerceGraph
 from runtime.graph.adapters import ConversationStateAdapter, LangChainMessageAdapter
@@ -296,6 +311,16 @@ class ApplicationContainer:
     def _build_capabilities(self) -> None:
 
         self.greeting_capability = GreetingCapability()
+        self.start_customer_onboarding_capability = StartCustomerOnboardingCapability(
+            self.saved_delivery_details_service
+        )
+        self.collect_customer_onboarding_details_capability = (
+            CollectCustomerOnboardingDetailsCapability(self.phone_validation_policy)
+        )
+        self.confirm_customer_onboarding_capability = (
+            ConfirmCustomerOnboardingCapability(self.saved_delivery_details_service)
+        )
+        self.skip_customer_onboarding_capability = SkipCustomerOnboardingCapability()
 
         self.search_product_capability = SearchProductCapability(
             service=self.search_product_service,
@@ -347,6 +372,9 @@ class ApplicationContainer:
         self.list_saved_addresses_capability = ListSavedAddressesCapability(
             self.saved_delivery_details_service
         )
+        self.view_saved_delivery_profile_capability = (
+            ViewSavedDeliveryProfileCapability(self.saved_delivery_details_service)
+        )
         self.select_saved_address_capability = SelectSavedAddressCapability(
             self.saved_delivery_details_service
         )
@@ -385,6 +413,10 @@ class ApplicationContainer:
         self.capability_registry = CapabilityRegistry[CommerceSession](
             capabilities=[
                 self.greeting_capability,
+                self.start_customer_onboarding_capability,
+                self.collect_customer_onboarding_details_capability,
+                self.confirm_customer_onboarding_capability,
+                self.skip_customer_onboarding_capability,
                 self.search_product_capability,
                 self.select_product_capability,
                 self.add_to_cart_capability,
@@ -403,6 +435,7 @@ class ApplicationContainer:
                 self.get_order_details_capability,
                 self.cancel_order_capability,
                 self.list_saved_addresses_capability,
+                self.view_saved_delivery_profile_capability,
                 self.select_saved_address_capability,
                 self.save_delivery_details_capability,
                 self.confirm_save_delivery_details_capability,
@@ -469,6 +502,7 @@ class ApplicationContainer:
         self.runtime = CommerceRuntime(
             graph=self.commerce_graph,
             graph_state_adapter=self.graph_state_adapter,
+            saved_delivery_details_service=self.saved_delivery_details_service,
         )
 
     def _start_channel_workers(self) -> None:

@@ -8,6 +8,7 @@ from .checkout import CheckoutState
 from .customer_order import OrderSummary, PendingOrderCancellation
 from .product import Product
 from .saved_delivery import (
+    CustomerOnboardingState,
     PendingSavedDetailsSave,
     PendingSavedProfileUse,
     SavedAddressOption,
@@ -27,3 +28,6 @@ class CommerceSession(BaseModel):
     recent_saved_addresses: tuple[SavedAddressOption, ...] = ()
     pending_saved_profile_use: PendingSavedProfileUse | None = None
     pending_saved_details_save: PendingSavedDetailsSave | None = None
+    customer_onboarding: CustomerOnboardingState = Field(
+        default_factory=CustomerOnboardingState
+    )

@@ -451,3 +451,21 @@ that began execution but did not persist a response remain ambiguous rather
 than risking duplicate commerce effects. PostgreSQL advisory locks serialize
 REST and external-channel work for the same conversation without changing the
 graph, planner, or capabilities.
+
+---
+
+## ADR-028
+
+Hydrate a safe customer-profile projection before planning and complete onboarding
+through the existing saved-delivery aggregate.
+
+Status
+
+Accepted
+
+Reason
+
+Returning-customer recognition needs a trusted durable lookup while raw phone and
+address values must stay out of ordinary prompts. Checkpoint state owns the
+uncommitted proposal; explicit confirmation performs one atomic profile, address,
+consent, and idempotency write without changing the frozen graph.

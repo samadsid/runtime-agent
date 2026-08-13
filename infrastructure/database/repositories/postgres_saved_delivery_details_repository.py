@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+from datetime import datetime
 from uuid import UUID, uuid4
 
 import asyncpg
@@ -13,6 +16,8 @@ from commerce.repositories import (
     StaleSavedDeliveryAddressError,
 )
 from infrastructure.database import DatabasePool
+
+logger = logging.getLogger(__name__)
 
 
 class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
@@ -28,14 +33,21 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
         self, tenant_id: UUID, channel: ChannelName, channel_customer_id: str
     ) -> SavedDeliveryProfile | None:
         if self._connection is None:
-            async with self._pool.pool.acquire() as connection:
-                return await self._with(connection).get_profile(
-                    tenant_id, channel, channel_customer_id
-                )
+            try:
+                async with self._pool.pool.acquire() as connection:
+                    return await self._with(connection).get_profile(
+                        tenant_id, channel, channel_customer_id
+                    )
+            except asyncpg.PostgresError as error:
+                raise SavedDeliveryPersistenceError(
+                    "Saved delivery profile is temporarily unavailable."
+                ) from error
         row = await self._connection.fetchrow(
             """
             SELECT id, tenant_id, channel, channel_customer_id, customer_name,
-                   phone_number, created_at, updated_at
+                   phone_number, phone_verified, onboarding_status,
+                   profile_consent_version, profile_consented_at,
+                   onboarding_request_id, created_at, updated_at
             FROM saved_delivery_profiles
             WHERE tenant_id = $1 AND channel = $2 AND channel_customer_id = $3
             """,
@@ -44,6 +56,164 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
             channel_customer_id,
         )
         return self._profile(row) if row is not None else None
+
+    async def complete_onboarding(
+        self,
+        tenant_id: UUID,
+        channel: ChannelName,
+        channel_customer_id: str,
+        customer_name: str,
+        phone_number: str,
+        delivery_address: str,
+        consent_version: str,
+        consented_at: datetime,
+        request_id: str,
+        address_label: str,
+    ) -> SavedDeliveryProfile:
+        if self._connection is None:
+            for attempt in range(3):
+                try:
+                    async with (
+                        self._pool.pool.acquire() as connection,
+                        connection.transaction(),
+                    ):
+                        return await self._with(connection).complete_onboarding(
+                            tenant_id,
+                            channel,
+                            channel_customer_id,
+                            customer_name,
+                            phone_number,
+                            delivery_address,
+                            consent_version,
+                            consented_at,
+                            request_id,
+                            address_label,
+                        )
+                except SavedDeliveryProfileConflictError:
+                    raise
+                except asyncpg.PostgresError as error:
+                    if error.sqlstate not in {"40P01", "40001"} or attempt == 2:
+                        raise SavedDeliveryPersistenceError(
+                            "Customer onboarding is temporarily unavailable."
+                        ) from error
+                    logger.warning(
+                        "Retrying customer onboarding transaction.",
+                        extra={
+                            "event": "customer_onboarding_concurrency_retry",
+                            "attempt": attempt + 1,
+                            "sqlstate": error.sqlstate,
+                        },
+                    )
+                    await asyncio.sleep(0.025 * (2**attempt))
+            raise AssertionError("Onboarding retry loop did not return or raise.")
+
+        connection = self._connection
+        await connection.execute(
+            """
+            INSERT INTO saved_delivery_profiles (
+                id, tenant_id, channel, channel_customer_id, customer_name,
+                phone_number, phone_verified, onboarding_status, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, NULL, NULL, FALSE, 'INCOMPLETE', now(), now())
+            ON CONFLICT (tenant_id, channel, channel_customer_id) DO NOTHING
+            """,
+            uuid4(),
+            tenant_id,
+            channel.value,
+            channel_customer_id,
+        )
+        current = await connection.fetchrow(
+            """
+            SELECT id, customer_name, phone_number, onboarding_status,
+                   onboarding_request_id
+            FROM saved_delivery_profiles
+            WHERE tenant_id=$1 AND channel=$2 AND channel_customer_id=$3
+            FOR UPDATE
+            """,
+            tenant_id,
+            channel.value,
+            channel_customer_id,
+        )
+        if current is None:
+            raise SavedDeliveryPersistenceError(
+                "Saved delivery profile was unavailable."
+            )
+        if current["onboarding_status"] == "COMPLETED":
+            matching_address = await connection.fetchval(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM saved_delivery_addresses
+                    WHERE profile_id=$1 AND delivery_address=$2
+                )
+                """,
+                current["id"],
+                delivery_address,
+            )
+            if current["onboarding_request_id"] == request_id or (
+                current["customer_name"] == customer_name
+                and current["phone_number"] == phone_number
+                and matching_address
+            ):
+                profile = await self.get_profile(
+                    tenant_id, channel, channel_customer_id
+                )
+                assert profile is not None
+                return profile
+            raise SavedDeliveryProfileConflictError(
+                "Customer onboarding was already completed."
+            )
+        for existing, proposed in (
+            (current["customer_name"], customer_name),
+            (current["phone_number"], phone_number),
+        ):
+            if existing is not None and existing != proposed:
+                raise SavedDeliveryProfileConflictError(
+                    "Onboarding cannot overwrite saved profile values."
+                )
+        addresses = await connection.fetch(
+            """
+            SELECT id, delivery_address, is_default
+            FROM saved_delivery_addresses
+            WHERE profile_id=$1 ORDER BY is_default DESC, created_at, id
+            FOR UPDATE
+            """,
+            current["id"],
+        )
+        if addresses:
+            if not any(
+                row["delivery_address"] == delivery_address for row in addresses
+            ):
+                raise SavedDeliveryProfileConflictError(
+                    "Onboarding cannot overwrite saved address values."
+                )
+        else:
+            await self._add_address_locked(
+                connection,
+                tenant_id,
+                current["id"],
+                address_label,
+                delivery_address,
+                True,
+            )
+        row = await connection.fetchrow(
+            """
+            UPDATE saved_delivery_profiles
+            SET customer_name=$2, phone_number=$3, phone_verified=FALSE,
+                onboarding_status='COMPLETED', profile_consent_version=$4,
+                profile_consented_at=$5, onboarding_request_id=$6, updated_at=now()
+            WHERE id=$1
+            RETURNING id, tenant_id, channel, channel_customer_id, customer_name,
+                      phone_number, phone_verified, onboarding_status,
+                      profile_consent_version, profile_consented_at,
+                      onboarding_request_id, created_at, updated_at
+            """,
+            current["id"],
+            customer_name,
+            phone_number,
+            consent_version,
+            consented_at,
+            request_id,
+        )
+        return self._profile(row)
 
     async def save_profile_details(
         self,
@@ -124,7 +294,9 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
         current = await connection.fetchrow(
             """
             SELECT id, tenant_id, channel, channel_customer_id, customer_name,
-                   phone_number, created_at, updated_at
+                   phone_number, phone_verified, onboarding_status,
+                   profile_consent_version, profile_consented_at,
+                   onboarding_request_id, created_at, updated_at
             FROM saved_delivery_profiles
             WHERE tenant_id = $1 AND channel = $2 AND channel_customer_id = $3
             FOR UPDATE
@@ -175,7 +347,9 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
             SET customer_name = $2, phone_number = $3, updated_at = now()
             WHERE id = $1
             RETURNING id, tenant_id, channel, channel_customer_id, customer_name,
-                      phone_number, created_at, updated_at
+                      phone_number, phone_verified, onboarding_status,
+                      profile_consent_version, profile_consented_at,
+                      onboarding_request_id, created_at, updated_at
             """,
             current["id"],
             next_name,
@@ -197,10 +371,15 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
         self, tenant_id: UUID, profile_id: UUID
     ) -> tuple[SavedDeliveryAddress, ...]:
         if self._connection is None:
-            async with self._pool.pool.acquire() as connection:
-                return await self._with(connection).list_addresses(
-                    tenant_id, profile_id
-                )
+            try:
+                async with self._pool.pool.acquire() as connection:
+                    return await self._with(connection).list_addresses(
+                        tenant_id, profile_id
+                    )
+            except asyncpg.PostgresError as error:
+                raise SavedDeliveryPersistenceError(
+                    "Saved addresses are temporarily unavailable."
+                ) from error
         rows = await self._connection.fetch(
             """
             SELECT address.id, address.profile_id, address.label,
@@ -480,6 +659,11 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
             channel_customer_id=row["channel_customer_id"],
             customer_name=row["customer_name"],
             phone_number=row["phone_number"],
+            phone_verified=row["phone_verified"],
+            onboarding_status=row["onboarding_status"],
+            profile_consent_version=row["profile_consent_version"],
+            profile_consented_at=row["profile_consented_at"],
+            onboarding_request_id=row["onboarding_request_id"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
