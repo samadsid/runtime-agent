@@ -4,7 +4,7 @@ from typing import Annotated
 
 from pydantic import StringConstraints
 
-from commerce.models import CartItem, CheckoutState
+from commerce.models import CartItem, CheckoutState, PaymentMethod
 from runtime.contracts import (
     ApprovedResponseFragment,
     ExecutionStatus,
@@ -14,6 +14,13 @@ from runtime.contracts import (
 )
 
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def payment_method_label(payment_method: PaymentMethod) -> str:
+    return {
+        PaymentMethod.CASH_ON_DELIVERY: "Cash on delivery",
+        PaymentMethod.ONLINE: "Online payment",
+    }[payment_method]
 
 
 def next_missing_detail(checkout: CheckoutState) -> tuple[str, str] | None:
@@ -129,7 +136,7 @@ def confirmation_review_outcome(
             ApprovedResponseFragment(
                 id="payment-method",
                 text=(
-                    f"Payment: {checkout.payment_method.value}"
+                    f"Payment: {payment_method_label(checkout.payment_method)}"
                     if checkout.payment_method is not None
                     else "Payment method has not been selected."
                 ),
@@ -142,7 +149,7 @@ def confirmation_review_outcome(
             checkout.phone_number,
             checkout.delivery_address,
             *(
-                (checkout.payment_method.value,)
+                (payment_method_label(checkout.payment_method),)
                 if checkout.payment_method is not None
                 else ()
             ),

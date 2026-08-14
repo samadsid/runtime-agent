@@ -93,13 +93,15 @@ class SavedAddressOption(BaseModel):
 
 
 class PendingSavedProfileUse(BaseModel):
-    """Exact profile values offered for optional checkout use."""
+    """Exact saved values offered for optional checkout use."""
 
     model_config = ConfigDict(frozen=True)
 
     profile_id: UUID
     customer_name: str | None = None
     phone_number: str | None = None
+    address_id: UUID | None = None
+    delivery_address: str | None = None
 
 
 class SavedDetailsConfirmationReason(str, Enum):

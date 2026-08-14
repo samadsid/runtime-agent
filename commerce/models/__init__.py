@@ -1,6 +1,17 @@
 from .cart import Cart, CartStatus
 from .cart_editing import PendingCartClear
 from .cart_item import CartItem
+from .catalog_browse import (
+    CatalogBrowseKind,
+    CatalogBrowseState,
+    CatalogCategoryOption,
+    CatalogCategoryPage,
+    CatalogProductOption,
+    CatalogProductPage,
+    CategoryResolution,
+    CategoryResolutionKind,
+)
+from .category import Category
 from .checkout import CheckoutStage, CheckoutState, DeliveryDetailField
 from .commerce_session import CommerceSession
 from .customer_order import OrderSummary, PendingOrderCancellation
@@ -68,6 +79,15 @@ __all__ = [
     "Cart",
     "CartItem",
     "CartStatus",
+    "CatalogBrowseKind",
+    "CatalogBrowseState",
+    "CatalogCategoryOption",
+    "CatalogCategoryPage",
+    "CatalogProductOption",
+    "CatalogProductPage",
+    "Category",
+    "CategoryResolution",
+    "CategoryResolutionKind",
     "ChannelName",
     "CheckoutStage",
     "CheckoutState",

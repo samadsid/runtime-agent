@@ -1,7 +1,13 @@
 from __future__ import annotations
 
-from commerce.models import CheckoutStage, CheckoutState, CommerceSession
-from commerce.services import CartService
+from commerce.models import (
+    CheckoutStage,
+    CheckoutState,
+    CommerceSession,
+    PendingSavedProfileUse,
+    SavedAddressOption,
+)
+from commerce.services import CartService, SavedDeliveryDetailsService
 from runtime.capabilities import (
     Capability,
     CapabilityInput,
@@ -24,8 +30,13 @@ from runtime.contracts import (
 
 
 class CheckoutCapability(Capability[CommerceSession]):
-    def __init__(self, service: CartService) -> None:
+    def __init__(
+        self,
+        service: CartService,
+        saved_details_service: SavedDeliveryDetailsService | None = None,
+    ) -> None:
         self._service = service
+        self._saved_details_service = saved_details_service
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -89,6 +100,9 @@ class CheckoutCapability(Capability[CommerceSession]):
                 update={"stage": CheckoutStage.COLLECTING_DETAILS}
             )
             session = session.model_copy(update={"checkout": checkout})
+            saved_offer = await self._saved_details_offer(input, session)
+            if saved_offer is not None:
+                return saved_offer
             return CapabilityOutput(
                 session=session,
                 outcome=all_delivery_details_outcome(
@@ -164,3 +178,90 @@ class CheckoutCapability(Capability[CommerceSession]):
                 ),
             ),
         )
+
+    async def _saved_details_offer(
+        self,
+        input: CapabilityInput[CommerceSession],
+        session: CommerceSession,
+    ) -> CapabilityOutput[CommerceSession] | None:
+        if (
+            self._saved_details_service is None
+            or input.context.channel_customer_id is None
+        ):
+            return None
+        profile, addresses = await self._saved_details_service.list_addresses(
+            input.context.tenant_id,
+            input.context.channel,
+            input.context.channel_customer_id,
+        )
+        if profile is None or not addresses:
+            return None
+        address = next((item for item in addresses if item.is_default), addresses[0])
+        option = SavedAddressOption(
+            address_id=address.id,
+            label=address.label,
+            delivery_address=address.delivery_address,
+            is_default=address.is_default,
+            version=address.version,
+        )
+        pending = PendingSavedProfileUse(
+            profile_id=profile.id,
+            customer_name=profile.customer_name,
+            phone_number=profile.phone_number,
+            address_id=address.id,
+            delivery_address=address.delivery_address,
+        )
+        fragments = [
+            ApprovedResponseFragment(
+                id="saved-checkout-details-available",
+                text="Saved delivery details are available:",
+            )
+        ]
+        protected = [address.label, address.delivery_address]
+        if profile.customer_name is not None:
+            fragments.append(
+                ApprovedResponseFragment(
+                    id="saved-checkout-name",
+                    text=f"Name: {profile.customer_name}",
+                )
+            )
+            protected.append(profile.customer_name)
+        if profile.phone_number is not None:
+            masked_phone = self._mask_phone(profile.phone_number)
+            fragments.append(
+                ApprovedResponseFragment(
+                    id="saved-checkout-phone",
+                    text=f"Phone: {masked_phone}",
+                )
+            )
+            protected.append(masked_phone)
+        fragments.append(
+            ApprovedResponseFragment(
+                id="saved-checkout-address",
+                text=f"Address ({address.label}): {address.delivery_address}",
+            )
+        )
+        return CapabilityOutput(
+            session=session.model_copy(
+                update={
+                    "recent_saved_addresses": (option,),
+                    "pending_saved_profile_use": pending,
+                }
+            ),
+            outcome=GeneratedExecutionOutcome(
+                status=ExecutionStatus.MISSING_INPUT,
+                fragments=tuple(fragments),
+                follow_up=FollowUpRequest(
+                    id="confirm-saved-checkout-details",
+                    question=(
+                        "Would you like to use these saved delivery details, "
+                        "or provide different ones?"
+                    ),
+                ),
+                protected_values=tuple(protected),
+            ),
+        )
+
+    @staticmethod
+    def _mask_phone(phone: str) -> str:
+        return f"{'*' * max(0, len(phone) - 4)}{phone[-4:]}"

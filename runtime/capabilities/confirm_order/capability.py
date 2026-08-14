@@ -26,6 +26,7 @@ from runtime.capabilities import (
     CapabilityName,
     CapabilityOutput,
 )
+from runtime.capabilities.checkout_support import payment_method_label
 from runtime.contracts import (
     ApprovedOption,
     ApprovedResponseFragment,
@@ -111,14 +112,14 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
                         id="order-confirmed",
                         text=(
                             f"Order {order.id} is {order.status.value}. "
-                            "Payment method: CASH_ON_DELIVERY."
+                            f"Payment method: {payment_method_label(order.payment_method)}."
                         ),
                     ),
                 ),
                 protected_values=(
                     str(order.id),
                     order.status.value,
-                    order.payment_method.value,
+                    payment_method_label(order.payment_method),
                 ),
             ),
         )

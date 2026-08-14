@@ -16,6 +16,23 @@ class CommerceSessionRenderer:
         else:
             lines.append("None.")
 
+        lines.append("Current catalog browse (separate ordinal namespace):")
+        browse = session.catalog_browse
+        if browse is None:
+            lines.append("None.")
+        else:
+            lines.append(f"Kind: {browse.kind.value}")
+            lines.append(f"Page: {browse.page}")
+            lines.append(f"Has previous: {browse.has_previous}")
+            lines.append(f"Has next: {browse.has_next}")
+            lines.append(f"Created at: {browse.created_at.isoformat()}")
+            if browse.category_id is not None:
+                lines.append(f"Category context ID: {browse.category_id}")
+            for ordinal, category in enumerate(browse.categories, 1):
+                lines.append(f"{ordinal}. Category: {category.name}")
+            for ordinal, browse_product in enumerate(browse.products, 1):
+                lines.append(f"{ordinal}. Product: {browse_product.name}")
+
         lines.append("Selected product:")
         lines.append(
             session.selected_product.name

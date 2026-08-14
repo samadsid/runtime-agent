@@ -9,6 +9,8 @@ from app.jobs import (
 from commerce.models import CommerceSession
 from commerce.services import (
     CartService,
+    CatalogBrowsePolicy,
+    CatalogBrowseService,
     CustomerOrderService,
     DirectCartService,
     FulfilmentService,
@@ -43,6 +45,7 @@ from runtime.capabilities.accept_available_quantity import (
 )
 from runtime.capabilities.add_product_to_cart import AddProductToCartCapability
 from runtime.capabilities.add_to_cart import AddToCartCapability
+from runtime.capabilities.browse_catalog import BrowseCatalogCapability
 from runtime.capabilities.cancel_order import CancelOrderCapability
 from runtime.capabilities.checkout import CheckoutCapability
 from runtime.capabilities.clear_cart import ClearCartCapability
@@ -69,14 +72,15 @@ from runtime.capabilities.greeting import GreetingCapability
 from runtime.capabilities.list_orders import ListOrdersCapability
 from runtime.capabilities.list_saved_addresses import ListSavedAddressesCapability
 from runtime.capabilities.remove_from_cart import RemoveFromCartCapability
+from runtime.capabilities.resolve_catalog_browse import ResolveCatalogBrowseCapability
+from runtime.capabilities.resolve_pending_cart_addition import (
+    ResolvePendingCartAdditionCapability,
+)
 from runtime.capabilities.retry_online_payment import RetryOnlinePaymentCapability
 from runtime.capabilities.save_delivery_details import SaveDeliveryDetailsCapability
 from runtime.capabilities.search_product import SearchProductCapability
 from runtime.capabilities.select_payment_method import SelectPaymentMethodCapability
 from runtime.capabilities.select_product import SelectProductCapability
-from runtime.capabilities.select_product_for_pending_cart_addition import (
-    SelectProductForPendingCartAdditionCapability,
-)
 from runtime.capabilities.select_saved_address import SelectSavedAddressCapability
 from runtime.capabilities.set_default_address import SetDefaultAddressCapability
 from runtime.capabilities.skip_customer_onboarding import (
@@ -247,6 +251,14 @@ class ApplicationContainer:
         self.search_product_service = SearchProductService(
             product_repository=self.product_repository,
         )
+        self.catalog_browse_service = CatalogBrowseService(
+            self.product_repository,
+            CatalogBrowsePolicy(
+                product_page_size=self.settings.CATALOG_BROWSE_PRODUCT_PAGE_SIZE,
+                category_page_size=self.settings.CATALOG_BROWSE_CATEGORY_PAGE_SIZE,
+                direct_product_limit=self.settings.CATALOG_BROWSE_DIRECT_PRODUCT_LIMIT,
+            ),
+        )
 
         self.cart_service = CartService(repository=self.cart_repository)
         self.direct_cart_service = DirectCartService(
@@ -337,6 +349,13 @@ class ApplicationContainer:
         )
 
         self.select_product_capability = SelectProductCapability()
+        self.browse_catalog_capability = BrowseCatalogCapability(
+            self.catalog_browse_service
+        )
+        self.resolve_catalog_browse_capability = ResolveCatalogBrowseCapability(
+            self.catalog_browse_service,
+            ttl=timedelta(seconds=self.settings.CATALOG_BROWSE_STATE_TTL_SECONDS),
+        )
 
         self.add_to_cart_capability = AddToCartCapability(
             service=self.cart_service,
@@ -345,7 +364,7 @@ class ApplicationContainer:
             self.direct_cart_service
         )
         self.select_pending_cart_product_capability = (
-            SelectProductForPendingCartAdditionCapability(
+            ResolvePendingCartAdditionCapability(
                 self.direct_cart_service,
                 ttl=timedelta(minutes=self.settings.PENDING_CART_ADDITION_TTL_MINUTES),
             )
@@ -363,7 +382,10 @@ class ApplicationContainer:
             service=self.cart_service,
         )
         self.clear_cart_capability = ClearCartCapability(service=self.cart_service)
-        self.checkout_capability = CheckoutCapability(service=self.cart_service)
+        self.checkout_capability = CheckoutCapability(
+            service=self.cart_service,
+            saved_details_service=self.saved_delivery_details_service,
+        )
         self.collect_delivery_details_capability = CollectDeliveryDetailsCapability(
             phone_policy=self.phone_validation_policy,
         )
@@ -438,6 +460,8 @@ class ApplicationContainer:
                 self.skip_customer_onboarding_capability,
                 self.search_product_capability,
                 self.select_product_capability,
+                self.browse_catalog_capability,
+                self.resolve_catalog_browse_capability,
                 self.add_to_cart_capability,
                 self.add_product_to_cart_capability,
                 self.select_pending_cart_product_capability,

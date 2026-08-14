@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from commerce.models import CommerceSession, DirectCartResult, DirectCartResultKind
+from commerce.models import (
+    CheckoutStage,
+    CheckoutState,
+    CommerceSession,
+    DirectCartResult,
+    DirectCartResultKind,
+)
 from runtime.capabilities import CapabilityOutput
 from runtime.contracts import (
     ApprovedOption,
@@ -10,6 +16,7 @@ from runtime.contracts import (
     ExecutionStatus,
     FollowUpRequest,
     GeneratedExecutionOutcome,
+    ResponseFragmentKind,
 )
 
 
@@ -25,7 +32,11 @@ def direct_result_output(
                 "cart_items": result.cart.items,
                 "selected_product": product,
                 "pending_cart_addition": None,
-                "checkout": type(session.checkout)(),
+                "checkout": CheckoutState(
+                    stage=CheckoutStage.REVIEWING_CART,
+                    source_cart_id=result.cart.id,
+                    source_cart_version=result.cart.version,
+                ),
                 "pending_saved_profile_use": None,
                 "pending_cart_clear": None,
             }
@@ -39,12 +50,38 @@ def direct_result_output(
                         id="direct-cart-item-added",
                         text=f"Added {amount} {product.unit} {product.name} to your cart.",
                     ),
+                    ApprovedResponseFragment(
+                        id="direct-checkout-cart-heading",
+                        text="Checkout cart review:",
+                    ),
+                    *tuple(
+                        ApprovedResponseFragment(
+                            id=f"direct-checkout-item-{ordinal}",
+                            text=(
+                                f"{ordinal}. {item.product.name} — "
+                                f"{format(item.quantity, 'f')} {item.product.unit} "
+                                f"at ₹{item.product.price}/{item.product.unit}"
+                            ),
+                            kind=ResponseFragmentKind.ITEM,
+                        )
+                        for ordinal, item in enumerate(result.cart.items, start=1)
+                    ),
                 ),
                 follow_up=FollowUpRequest(
                     id="checkout-or-continue",
                     question="Would you like to checkout or continue shopping?",
                 ),
-                protected_values=(amount, product.unit, product.name),
+                protected_values=tuple(
+                    value
+                    for ordinal, item in enumerate(result.cart.items, start=1)
+                    for value in (
+                        str(ordinal),
+                        item.product.name,
+                        format(item.quantity, "f"),
+                        item.product.unit,
+                        f"₹{item.product.price}",
+                    )
+                ),
             ),
         )
     if result.kind is DirectCartResultKind.UNIT_MISMATCH:

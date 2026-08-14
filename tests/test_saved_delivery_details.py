@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
 
 from commerce.models import (
+    CartItem,
     ChannelName,
     CheckoutStage,
     CheckoutState,
     CommerceSession,
+    PaymentMethod,
     PendingSavedDetailsSave,
+    PendingSavedProfileUse,
+    Product,
     SavedDeliveryAddress,
     SavedDeliveryProfile,
     SavedDetailsConfirmationReason,
@@ -21,8 +26,13 @@ from commerce.repositories import (
     SavedDeliveryProfileConflictError,
     StaleSavedDeliveryAddressError,
 )
-from commerce.services import NonEmptyPhoneValidationPolicy, SavedDeliveryDetailsService
+from commerce.services import (
+    CartService,
+    NonEmptyPhoneValidationPolicy,
+    SavedDeliveryDetailsService,
+)
 from runtime.capabilities import CapabilityInput, ExecutionContext
+from runtime.capabilities.checkout import CheckoutCapability
 from runtime.capabilities.confirm_save_delivery_details import (
     ConfirmSaveDeliveryDetailsCapability,
 )
@@ -31,6 +41,7 @@ from runtime.capabilities.confirm_saved_profile_use import (
 )
 from runtime.capabilities.list_saved_addresses import ListSavedAddressesCapability
 from runtime.capabilities.save_delivery_details import SaveDeliveryDetailsCapability
+from runtime.capabilities.select_payment_method import SelectPaymentMethodCapability
 from runtime.capabilities.select_saved_address import SelectSavedAddressCapability
 from runtime.capabilities.update_saved_address import UpdateSavedAddressCapability
 from runtime.capabilities.view_saved_delivery_profile import (
@@ -39,6 +50,7 @@ from runtime.capabilities.view_saved_delivery_profile import (
 from runtime.contracts import ExecutionStatus
 from runtime.graph.memory import GraphCheckpointer
 from runtime.prompts.renderers import CommerceSessionRenderer
+from tests.fakes import InMemoryCartRepository
 
 
 class FakeSavedDeliveryRepository(SavedDeliveryDetailsRepository):
@@ -389,6 +401,146 @@ async def test_select_copies_snapshot_and_saved_update_does_not_change_checkout(
     assert updated.session.checkout.delivery_address == "Old Road"
 
 
+@pytest.mark.asyncio
+async def test_saved_profile_acceptance_completes_checkout_for_payment_selection(
+    saved_fixture,
+) -> None:
+    _, service, context = saved_fixture
+    await service.save_details(
+        context.tenant_id,
+        context.channel,
+        context.channel_customer_id,
+        "Samad",
+        "9560717170",
+        "Home",
+        "B-68 New Zafrabad",
+        True,
+    )
+    checkout = CheckoutState(
+        stage=CheckoutStage.COLLECTING_DETAILS,
+        source_cart_id=uuid4(),
+        source_cart_version=1,
+        payment_method=None,
+    )
+    listed = await ListSavedAddressesCapability(service).execute(
+        capability_input(CommerceSession(checkout=checkout), context)
+    )
+    selected = await SelectSavedAddressCapability(service).execute(
+        capability_input(listed.session, context, {"ordinal": 1})
+    )
+
+    accepted = await ConfirmSavedProfileUseCapability(service).execute(
+        capability_input(selected.session, context, {"confirmed": True})
+    )
+    payment = await SelectPaymentMethodCapability().execute(
+        capability_input(
+            accepted.session,
+            context,
+            {"payment_method": PaymentMethod.CASH_ON_DELIVERY.value},
+        )
+    )
+
+    assert accepted.session.checkout.stage == CheckoutStage.READY_TO_CONFIRM
+    assert payment.outcome.status == ExecutionStatus.SUCCESS
+    assert payment.session.checkout.payment_method == PaymentMethod.CASH_ON_DELIVERY
+
+
+@pytest.mark.asyncio
+async def test_checkout_proactively_offers_default_saved_delivery_details(
+    saved_fixture,
+) -> None:
+    _, service, context = saved_fixture
+    await service.save_details(
+        context.tenant_id,
+        context.channel,
+        context.channel_customer_id,
+        "Samad",
+        "9560717170",
+        "Home",
+        "B-68 New Zafrabad",
+        True,
+    )
+    item = CartItem(
+        product=Product(
+            id=uuid4(), name="Chicken Breast", price=Decimal(320), unit="kg"
+        ),
+        quantity=Decimal(10),
+    )
+    cart_repository = InMemoryCartRepository(items=(item,))
+    seeded_cart = cart_repository.carts.pop((UUID(int=0), UUID(int=0)))
+    cart_repository.carts[(context.tenant_id, context.conversation_id)] = (
+        seeded_cart.model_copy(
+            update={
+                "tenant_id": context.tenant_id,
+                "conversation_id": context.conversation_id,
+            }
+        )
+    )
+    capability = CheckoutCapability(
+        CartService(cart_repository),
+        saved_details_service=service,
+    )
+
+    review = await capability.execute(
+        capability_input(CommerceSession(), context)
+    )
+    offer = await capability.execute(capability_input(review.session, context))
+
+    rendered = "\n".join(fragment.text for fragment in offer.outcome.fragments)
+    assert "Name: Samad" in rendered
+    assert "Phone: ******7170" in rendered
+    assert "Address (Home): B-68 New Zafrabad" in rendered
+    assert "9560717170" not in rendered
+    assert offer.outcome.follow_up.id == "confirm-saved-checkout-details"
+    assert offer.session.checkout.delivery_address is None
+    assert offer.session.pending_saved_profile_use is not None
+
+    accepted = await ConfirmSavedProfileUseCapability(service).execute(
+        capability_input(offer.session, context, {"confirmed": True})
+    )
+
+    assert accepted.session.checkout.customer_name == "Samad"
+    assert accepted.session.checkout.phone_number == "9560717170"
+    assert accepted.session.checkout.delivery_address == "B-68 New Zafrabad"
+    assert accepted.session.checkout.stage == CheckoutStage.READY_TO_CONFIRM
+
+
+@pytest.mark.asyncio
+async def test_saved_address_completion_advances_existing_profile_checkout(
+    saved_fixture,
+) -> None:
+    _, service, context = saved_fixture
+    await service.save_details(
+        context.tenant_id,
+        context.channel,
+        context.channel_customer_id,
+        "Samad",
+        "9560717170",
+        "Home",
+        "B-68 New Zafrabad",
+        True,
+    )
+    checkout = CheckoutState(
+        stage=CheckoutStage.COLLECTING_DETAILS,
+        source_cart_id=uuid4(),
+        source_cart_version=1,
+        customer_name="Other Name",
+        phone_number="1234567890",
+        payment_method=None,
+    )
+    listed = await ListSavedAddressesCapability(service).execute(
+        capability_input(CommerceSession(checkout=checkout), context)
+    )
+
+    selected = await SelectSavedAddressCapability(service).execute(
+        capability_input(listed.session, context, {"ordinal": 1})
+    )
+
+    assert selected.session.pending_saved_profile_use is None
+    assert selected.session.checkout.stage == CheckoutStage.READY_TO_CONFIRM
+    assert selected.outcome.follow_up.id == "select-payment-method"
+
+
 def test_planner_projection_hides_saved_address_text_and_identifiers() -> None:
     address_id = uuid4()
     from commerce.models import SavedAddressOption
@@ -425,3 +577,83 @@ def test_saved_delivery_pending_state_round_trips_through_checkpoint_serializer(
     serializer = GraphCheckpointer().instance.serde
     restored = serializer.loads_typed(serializer.dumps_typed(session))
     assert restored == session
+
+
+def test_pending_saved_profile_use_round_trips_through_checkpoint_serializer() -> None:
+    session = CommerceSession(
+        pending_saved_profile_use=PendingSavedProfileUse(
+            profile_id=uuid4(),
+            customer_name="Samad",
+            phone_number="9560717170",
+        )
+    )
+
+    serializer = GraphCheckpointer().instance.serde
+    restored = serializer.loads_typed(serializer.dumps_typed(session))
+
+    assert restored == session
+
+
+@pytest.mark.asyncio
+async def test_stale_saved_profile_confirmation_continues_checkout_without_relisting(
+    saved_fixture,
+) -> None:
+    _, service, context = saved_fixture
+    checkout = CheckoutState(
+        stage=CheckoutStage.COLLECTING_DETAILS,
+        source_cart_id=uuid4(),
+        source_cart_version=1,
+        delivery_address="B-68 New Zafrabad",
+    )
+
+    result = await ConfirmSavedProfileUseCapability(service).execute(
+        capability_input(
+            CommerceSession(checkout=checkout),
+            context,
+            {"confirmed": True},
+        )
+    )
+
+    assert result.outcome.follow_up.id == "request-customer-name"
+    assert result.outcome.follow_up.id != "review-saved-addresses"
+
+
+def test_checkout_review_uses_customer_facing_payment_label() -> None:
+    from runtime.capabilities.checkout_support import confirmation_review_outcome
+
+    outcome = confirmation_review_outcome(
+        CheckoutState(
+            stage=CheckoutStage.READY_TO_CONFIRM,
+            customer_name="Samad",
+            phone_number="9560717170",
+            delivery_address="B-68 New Zafrabad",
+            payment_method=PaymentMethod.CASH_ON_DELIVERY,
+        )
+    )
+
+    rendered = "\n".join(fragment.text for fragment in outcome.fragments)
+    assert "Payment: Cash on delivery" in rendered
+    assert "CASH_ON_DELIVERY" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_saved_profile_confirmation_requires_explicit_boolean_argument(
+    saved_fixture,
+) -> None:
+    _, service, context = saved_fixture
+    pending = PendingSavedProfileUse(
+        profile_id=uuid4(),
+        customer_name="Samad",
+        phone_number="9560717170",
+    )
+
+    result = await ConfirmSavedProfileUseCapability(service).execute(
+        capability_input(
+            CommerceSession(pending_saved_profile_use=pending),
+            context,
+        )
+    )
+
+    assert result.outcome.fragments[0].id == "saved-profile-confirmation-invalid"
+    assert "no pending" not in result.outcome.fragments[0].text.lower()
+    assert result.session.pending_saved_profile_use == pending

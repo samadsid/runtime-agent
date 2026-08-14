@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field, ValidationError
 
-from commerce.models import CheckoutState, CommerceSession
+from commerce.models import CheckoutStage, CheckoutState, CommerceSession
 from commerce.services import CartService
 from runtime.capabilities import (
     Capability,
@@ -19,6 +19,7 @@ from runtime.contracts import (
     ExecutionStatus,
     FollowUpRequest,
     GeneratedExecutionOutcome,
+    ResponseFragmentKind,
 )
 
 
@@ -35,8 +36,9 @@ class AddToCartCapability(Capability[CommerceSession]):
         return CapabilityMetadata(
             name=CapabilityName.ADD_TO_CART,
             description=(
-                "Adds the selected product to the cart with a positive quantity. "
-                "Requires a decimal 'quantity' argument."
+                "Adds the selected product, or the sole recent product result, "
+                "to the cart with a positive quantity. Requires a decimal "
+                "'quantity' argument."
             ),
         )
 
@@ -45,6 +47,8 @@ class AddToCartCapability(Capability[CommerceSession]):
         input: CapabilityInput[CommerceSession],
     ) -> CapabilityOutput[CommerceSession]:
         product = input.session.selected_product
+        if product is None and len(input.session.recent_product_results) == 1:
+            product = input.session.recent_product_results[0]
         if product is None:
             return self._missing_product(input.session)
 
@@ -71,7 +75,12 @@ class AddToCartCapability(Capability[CommerceSession]):
         session = input.session.model_copy(
             update={
                 "cart_items": cart.items,
-                "checkout": CheckoutState(),
+                "selected_product": product,
+                "checkout": CheckoutState(
+                    stage=CheckoutStage.REVIEWING_CART,
+                    source_cart_id=cart.id,
+                    source_cart_version=cart.version,
+                ),
                 "pending_saved_profile_use": None,
                 "pending_cart_clear": None,
                 "pending_cart_addition": None,
@@ -90,16 +99,38 @@ class AddToCartCapability(Capability[CommerceSession]):
                             "to your cart."
                         ),
                     ),
+                    ApprovedResponseFragment(
+                        id="added-checkout-cart-heading",
+                        text="Checkout cart review:",
+                    ),
+                    *tuple(
+                        ApprovedResponseFragment(
+                            id=f"added-checkout-item-{ordinal}",
+                            text=(
+                                f"{ordinal}. {item.product.name} — "
+                                f"{format(item.quantity, 'f')} {item.product.unit} "
+                                f"at ₹{item.product.price}/{item.product.unit}"
+                            ),
+                            kind=ResponseFragmentKind.ITEM,
+                        )
+                        for ordinal, item in enumerate(cart.items, start=1)
+                    ),
                 ),
                 follow_up=FollowUpRequest(
-                                    id="confirm-cart-order",
-                                    question=(
-                                        f"You have {quantity} {product.unit} of "
-                                        f"{product.name} in your cart. Would you like "
-                                        "to proceed to checkout or continue shopping?"
-                                    ),
-                                ),
-                protected_values=(quantity, product.unit, product.name),
+                    id="confirm-cart-order",
+                    question="Would you like to checkout or continue shopping?",
+                ),
+                protected_values=tuple(
+                    value
+                    for ordinal, item in enumerate(cart.items, start=1)
+                    for value in (
+                        str(ordinal),
+                        item.product.name,
+                        format(item.quantity, "f"),
+                        item.product.unit,
+                        f"₹{item.product.price}",
+                    )
+                ),
             ),
         )
 

@@ -170,9 +170,24 @@ def test_cart_capability_guidance_keeps_ordinal_namespaces_separate() -> None:
     commerce_prompt = PromptLoader().load("commerce.md")
     rules_prompt = PromptLoader().load("rules.md")
 
+    assert "pending saved profile use is present" in rules_prompt
+    assert "select saved-address ordinal 1" in rules_prompt
+    assert "takes precedence over listing or selecting saved" in rules_prompt
+    assert '"yes", "haan", and' in rules_prompt
+    assert '"hanji"' in rules_prompt
+    assert "always pass\n  `confirmed=true`" in rules_prompt
+    assert "negative reply" in rules_prompt
+    assert "must not list saved addresses" in rules_prompt
+
+    assert "`confirm_saved_profile_use` requires boolean `confirmed=true`" in commerce_prompt
+    assert '"no", "nahi", or' in commerce_prompt
+    assert '"nhi" declines that option' in commerce_prompt
+
     assert "add_to_cart" in commerce_prompt
     assert "add_product_to_cart" in commerce_prompt
-    assert "select_product_for_pending_cart_addition" in commerce_prompt
+    assert "resolve_pending_cart_addition" in commerce_prompt
+    assert "exactly one recent product result exists" in commerce_prompt
+    assert "do not ask for the same quantity again" in commerce_prompt
     assert "view_cart" in commerce_prompt
     assert "remove_from_cart" in commerce_prompt
     assert "update_cart_item_quantity" in commerce_prompt

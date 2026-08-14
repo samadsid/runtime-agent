@@ -6,6 +6,9 @@ from asyncpg.pgproto.pgproto import UUID as AsyncpgUUID
 
 from commerce.models import (
     CartItem,
+    CatalogBrowseKind,
+    CatalogBrowseState,
+    CatalogProductOption,
     CheckoutStage,
     CheckoutState,
     CommerceSession,
@@ -24,6 +27,14 @@ from commerce.models import (
     StockShortage,
 )
 from runtime.graph.memory import GraphCheckpointer
+
+
+def test_configured_serializer_allows_direct_order_status_enum() -> None:
+    serializer = GraphCheckpointer().instance.serde
+
+    restored = serializer.loads_typed(serializer.dumps_typed(OrderStatus.CONFIRMED))
+
+    assert restored is OrderStatus.CONFIRMED
 
 
 def test_configured_serializer_round_trips_durable_commerce_models(
@@ -56,6 +67,23 @@ def test_configured_serializer_round_trips_durable_commerce_models(
             stated_unit="kg",
             created_at=datetime.now(timezone.utc),
             source_request_id="request-1",
+        ),
+        catalog_browse=CatalogBrowseState(
+            kind=CatalogBrowseKind.PRODUCTS,
+            products=(
+                CatalogProductOption(
+                    product_id=product.id,
+                    name=product.name,
+                    price=product.price,
+                    currency=product.currency,
+                    unit=product.unit,
+                    available=True,
+                ),
+            ),
+            page=1,
+            has_previous=False,
+            has_next=True,
+            created_at=datetime.now(timezone.utc),
         ),
         checkout=CheckoutState(
             stage=CheckoutStage.COLLECTING_DETAILS,
@@ -109,6 +137,7 @@ def test_configured_serializer_round_trips_durable_commerce_models(
     assert restored.pending_cart_clear == session.pending_cart_clear
     assert restored.pending_cart_clear.cart_id == cart_id
     assert restored.pending_cart_addition == session.pending_cart_addition
+    assert restored.catalog_browse == session.catalog_browse
     assert restored.checkout == session.checkout
     assert restored.checkout.stage is CheckoutStage.COLLECTING_DETAILS
     assert restored.checkout.payment_method is PaymentMethod.ONLINE

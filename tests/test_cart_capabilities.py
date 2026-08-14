@@ -48,6 +48,40 @@ async def test_add_to_cart_adds_selected_product_with_valid_quantity(quantity) -
     assert output.session.cart_items[0].quantity == Decimal(str(quantity))
     assert chicken.name in output.outcome.fragments[0].text
     assert chicken.unit in output.outcome.fragments[0].text
+    assert output.session.checkout.stage.value == "REVIEWING_CART"
+    assert output.outcome.fragments[1].text == "Checkout cart review:"
+    assert "Chicken Breast" in output.outcome.fragments[2].text
+
+
+@pytest.mark.asyncio
+async def test_add_to_cart_uses_sole_recent_result_when_product_is_not_selected() -> None:
+    chicken = product("Chicken Breast")
+    session = CommerceSession(recent_product_results=(chicken,))
+
+    output = await AddToCartCapability(cart_service(products=(chicken,))).execute(
+        CapabilityInput[CommerceSession](data={"quantity": 1}, session=session)
+    )
+
+    assert output.outcome.status == ExecutionStatus.SUCCESS
+    assert output.session.selected_product == chicken
+    assert output.session.cart_items[0].product == chicken
+    assert output.session.cart_items[0].quantity == Decimal(1)
+    assert "Added 1 kg Chicken Breast" in output.outcome.fragments[0].text
+
+
+@pytest.mark.asyncio
+async def test_add_to_cart_does_not_guess_between_multiple_recent_results() -> None:
+    breast = product("Chicken Breast")
+    wings = product("Chicken Wings")
+    session = CommerceSession(recent_product_results=(breast, wings))
+
+    output = await AddToCartCapability(
+        cart_service(products=(breast, wings))
+    ).execute(CapabilityInput[CommerceSession](data={"quantity": 1}, session=session))
+
+    assert output.outcome.status == ExecutionStatus.MISSING_INPUT
+    assert output.session == session
+    assert output.outcome.follow_up.id == "select-product-for-cart"
 
 
 @pytest.mark.asyncio
@@ -72,23 +106,6 @@ async def test_add_to_cart_replaces_existing_quantity_without_reordering() -> No
     assert tuple(item.product for item in output.session.cart_items) == (rice, chicken)
     assert output.session.cart_items[1].quantity == Decimal(4)
     assert output.session.selected_product == chicken
-
-
-@pytest.mark.asyncio
-async def test_add_to_cart_without_selected_product_offers_recent_results() -> None:
-    chicken = product("Chicken Breast")
-    session = CommerceSession(recent_product_results=(chicken,))
-
-    output = await AddToCartCapability(cart_service()).execute(
-        CapabilityInput[CommerceSession](data={"quantity": 2}, session=session)
-    )
-
-    assert output.session == session
-    assert output.outcome.status == ExecutionStatus.MISSING_INPUT
-    assert output.outcome.follow_up is not None
-    assert tuple(option.label for option in output.outcome.follow_up.options) == (
-        "1. Chicken Breast",
-    )
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,10 @@ from runtime.capabilities import (
     CapabilityName,
     CapabilityOutput,
 )
-from runtime.capabilities.checkout_support import confirmation_review_outcome
+from runtime.capabilities.checkout_support import (
+    confirmation_review_outcome,
+    payment_method_label,
+)
 from runtime.contracts import (
     ApprovedResponseFragment,
     ExecutionStatus,
@@ -77,7 +80,10 @@ class SelectPaymentMethodCapability(Capability[CommerceSession]):
                 "fragments": (
                     ApprovedResponseFragment(
                         id="payment-method-selected",
-                        text=f"Payment method selected: {args.payment_method.value}.",
+                        text=(
+                            "Payment method selected: "
+                            f"{payment_method_label(args.payment_method)}."
+                        ),
                     ),
                 )
                 + confirmation_review_outcome(

@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     FAKE_PAYMENT_BASE_URL: str = "http://localhost:8000"
     PAYMENT_ATTEMPT_TTL_MINUTES: int = Field(default=15, ge=1)
     PENDING_CART_ADDITION_TTL_MINUTES: int = Field(default=15, ge=1, le=1440)
+    CATALOG_BROWSE_PRODUCT_PAGE_SIZE: int = Field(default=10, ge=1, le=100)
+    CATALOG_BROWSE_CATEGORY_PAGE_SIZE: int = Field(default=10, ge=1, le=100)
+    CATALOG_BROWSE_DIRECT_PRODUCT_LIMIT: int = Field(default=10, ge=1, le=1000)
+    CATALOG_BROWSE_STATE_TTL_SECONDS: int = Field(default=900, ge=1, le=86400)
     PAYMENT_RECONCILIATION_BATCH_SIZE: int = Field(default=100, ge=1, le=1000)
     PAYMENT_RECONCILIATION_INTERVAL_SECONDS: int = Field(default=30, ge=1)
     PAYMENT_WEBHOOK_RATE_LIMIT_PER_MINUTE: int = Field(default=30, ge=1)

@@ -3,7 +3,12 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from uuid import UUID
 
-from commerce.models import Product
+from commerce.models import (
+    CatalogCategoryPage,
+    CatalogProductPage,
+    CategoryResolution,
+    Product,
+)
 
 
 class ProductRepository(ABC):
@@ -42,4 +47,37 @@ class ProductRepository(ABC):
         """
         Persist a product.
         """
+        raise NotImplementedError
+
+    @abstractmethod
+    async def count_browsable_products(self, tenant_id: UUID) -> int:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def list_categories(
+        self, tenant_id: UUID, *, page: int, page_size: int
+    ) -> CatalogCategoryPage:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def resolve_category(
+        self, tenant_id: UUID, query: str, *, limit: int
+    ) -> CategoryResolution:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def list_browsable_products(
+        self,
+        tenant_id: UUID,
+        *,
+        category_id: UUID | None,
+        page: int,
+        page_size: int,
+    ) -> CatalogProductPage:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_browsable_product(
+        self, tenant_id: UUID, product_id: UUID
+    ) -> Product | None:
         raise NotImplementedError

@@ -9,13 +9,20 @@ Capability arguments:
 - `greeting` requires no arguments.
 - `search_product` requires a string `query`.
 - `select_product` requires a 1-based integer `ordinal` referring to the most recent product results.
+- `browse_catalog` accepts optional `category_query` containing only category words
+  explicitly present in the latest message and `view` equal to `auto`, `categories`,
+  or `products`. It never accepts IDs, page numbers, offsets, or limits.
+- `resolve_catalog_browse` requires exactly one of a positive current-page `ordinal`,
+  `navigation` equal to `next` or `previous`, or `cancelled=true`.
 - `add_to_cart` requires a positive decimal `quantity`; the product and unit
-  come from the selected product in commerce session state.
+  come from the selected product, or from the sole recent product result when
+  no product is selected, in commerce session state.
 - `add_product_to_cart` requires `product_query` containing only the customer's
   product-description words, a positive decimal `quantity`, and optional
   `stated_unit` only when explicitly supplied.
-- `select_product_for_pending_cart_addition` requires exactly one of a positive
+- `resolve_pending_cart_addition` requires exactly one of a positive
   1-based `ordinal` from pending direct-add options or `cancelled=true`.
+  This replaces the former `select_product_for_pending_cart_addition` name.
 - `view_cart` requires no arguments.
 - `remove_from_cart` requires a 1-based integer `ordinal` referring only to the
   current displayed cart items.
@@ -40,6 +47,13 @@ Capability arguments:
 - `list_orders` accepts an optional integer `limit` from 1 to 10; default 5.
 - `view_saved_delivery_profile` accepts an optional `field` equal to `all`,
   `customer_name`, `phone_number`, or `delivery_address`.
+- `list_saved_addresses` requires no arguments.
+- `select_saved_address` requires a 1-based integer `ordinal` from the most
+  recent saved-address list.
+- `confirm_saved_profile_use` requires boolean `confirmed=true` for an explicit
+  acceptance or `confirmed=false` for an explicit decline of the pending offer.
+- `select_payment_method` requires `payment_method` equal to `ONLINE` or
+  `CASH_ON_DELIVERY`, based only on the customer's explicit choice.
 - `get_order_details` requires exactly one target: string `order_reference`,
   1-based integer `ordinal` from recent order results, or `latest=true`.
 - `cancel_order` uses the same target fields for a first request with
@@ -75,6 +89,10 @@ Mandatory capability-routing rules:
 - Saved-profile questions are not checkout-detail questions. Do not answer that
   checkout is inactive, and do not infer whether a phone or address exists from
   the safe profile projection or conversation text.
+- When checkout asks whether to view saved addresses or provide one-time
+  delivery details, execute `list_saved_addresses` only for an affirmative
+  request to view or use saved addresses. A decline such as "no", "nahi", or
+  "nhi" declines that option; ask the customer for the missing delivery details.
 
 - If the latest user message is a greeting, introduction, or conversation start,
   execute `greeting`.
@@ -82,8 +100,25 @@ Mandatory capability-routing rules:
   "good afternoon", and "good evening".
 - Do not respond directly to a greeting when `greeting` is available.
 
-- If the customer asks about product availability, product names, prices,
-  catalog items, inventory, or searches for a product, execute `search_product`.
+- If the customer generally asks what products, items, categories, assortment, or
+  menu are available without naming a specific product, execute `browse_catalog`.
+  Never convert browsing into `search_product` with an invented query such as `all`,
+  `products`, `items`, `menu`, an empty string, or `*`.
+- For an explicit category-list request use `browse_catalog` with `view=categories`.
+  For an explicit all-products request use `view=products`; pagination still applies.
+- If the customer asks what is available in an explicitly stated category, execute
+  `browse_catalog` and pass only those exact category words as `category_query`.
+  Never invent a category or reinterpret an unknown category as a product query.
+- When current catalog browse state displays categories or products and the customer
+  selects an ordinal, execute `resolve_catalog_browse` with that ordinal. Never use
+  `select_product`, pending-add, cart, order, recovery, or address ordinals.
+- Route next/aur dikhao and previous/pichle browse requests to
+  `resolve_catalog_browse` with the corresponding navigation literal.
+- Route an explicit request to stop browsing to `resolve_catalog_browse` with only
+  `cancelled=true`. This is distinct from cancelling a pending add or order.
+
+- If the customer asks about a named product's availability, name, or price, or
+  searches for a specific product, execute `search_product`.
 - Pass the customer's product-search terms as the `query` argument.
 - Do not ask the customer for a product name when `search_product` can search
   using the information already provided.
@@ -95,7 +130,13 @@ Mandatory capability-routing rules:
 
 - When exactly one recent product result exists and the customer refers to it
   using a singular reference such as "this", "it", "that one", "this product",
-  or "that product", execute `select_product` with `ordinal` set to `1`.
+  or "that product" without a quantity, execute `select_product` with `ordinal`
+  set to `1`.
+
+- When exactly one recent product result exists and the customer gives a positive
+  quantity with purchase/add intent or a singular product reference, execute
+  `add_to_cart` with that quantity even when no product is selected. Do not first
+  execute `select_product`, and do not ask for the same quantity again.
 
 - Resolve these singular references only from structured recent product results
   in the commerce session.
@@ -114,15 +155,16 @@ Mandatory capability-routing rules:
   use direct add for browsing, price, or availability questions, or when either
   the product description or quantity is missing.
 - When a pending direct cart addition exists, resolve an ordinal only through
-  `select_product_for_pending_cart_addition`; never use recent search, cart,
+  `resolve_pending_cart_addition`; never use recent search, cart,
   order, address, or recovery ordinals. Route an explicit cancellation of that
   pending addition with only `cancelled=true`.
 - Never invent or convert a quantity or unit, and never pass product IDs,
   prices, tenant, conversation, cart, request, or customer data.
 
-- If a product is selected and the customer provides a quantity, execute
-  `add_to_cart` with that quantity.
-- Do not execute `add_to_cart` when no selected product exists.
+- If a product is selected, or exactly one recent product result exists, and the
+  customer provides a quantity, execute `add_to_cart` with that quantity.
+- Do not execute `add_to_cart` when no product is selected and recent results
+  contain zero or multiple products.
 - Do not pass a product name or unit to `add_to_cart`.
 
 - If the customer asks to see, show, or review their cart, execute `view_cart`.

@@ -285,7 +285,9 @@ async def test_existing_add_and_remove_mutations_increment_version_and_reset_wor
         )
     )
     assert next(iter(repository.carts.values())).version == 1
-    assert added.session.checkout == CheckoutState()
+    assert added.session.checkout.stage == CheckoutStage.REVIEWING_CART
+    assert added.session.checkout.source_cart_id == cart.id
+    assert added.session.checkout.source_cart_version == 1
     assert added.session.pending_cart_clear is None
 
     refreshed = next(iter(repository.carts.values()))

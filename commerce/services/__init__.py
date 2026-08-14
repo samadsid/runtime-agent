@@ -1,4 +1,10 @@
 from .cart_service import CartService
+from .catalog_browse_service import (
+    CatalogBrowsePolicy,
+    CatalogBrowseResult,
+    CatalogBrowseResultKind,
+    CatalogBrowseService,
+)
 from .customer_order_service import CustomerOrderService
 from .direct_cart_service import (
     DirectCartService,
@@ -21,6 +27,10 @@ from .search_product_service import SearchProductService
 
 __all__ = [
     "CartService",
+    "CatalogBrowsePolicy",
+    "CatalogBrowseResult",
+    "CatalogBrowseResultKind",
+    "CatalogBrowseService",
     "CustomerOrderService",
     "DirectCartService",
     "DirectCartServiceError",

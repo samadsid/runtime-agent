@@ -173,6 +173,18 @@ all other option namespaces. PostgreSQL remains authoritative for product
 availability and cart mutation, and the trusted request receipt is committed
 atomically with a successful direct add.
 
+A successful selected-product or direct-product add invalidates any older
+checkout state and creates a fresh `REVIEWING_CART` snapshot bound to the
+resulting cart ID and version. The add outcome presents that review; an explicit
+checkout continuation can therefore advance directly to delivery collection.
+
+`CommerceSession.catalog_browse` stores only the currently displayed bounded
+category or product page. Category and browse-product ordinals are isolated
+from search results, pending additions, carts, orders, recovery choices, and
+saved addresses. PostgreSQL remains authoritative; navigation reloads the
+requested tenant-scoped page and product selection revalidates current
+visibility, availability, and sellable inventory before updating selection.
+
 `CommerceSession.checkout` is short-term workflow state. It records the
 reviewed source cart and exact cart version, collection stage, delivery details,
 and any current stock-recovery choices until the workflow is reset. It is
@@ -233,6 +245,11 @@ for a dedicated ordinal namespace. Pending saved-detail offers and confirmations
 are typed checkpointed workflow state, while selected delivery values are copied
 into checkout as snapshots. Saved-address changes never alter an existing
 checkout review or immutable order snapshot.
+
+When a trusted returning customer advances from cart review, the checkout
+capability may load and present the default saved name, masked phone, and address
+as one typed pending offer. Nothing is copied into checkout until the customer
+explicitly accepts that exact offer; declining continues one-time detail collection.
 
 First-visit customer onboarding reuses these tables. Before planner invocation,
 `CommerceRuntime` hydrates a safe projection containing only profile availability,

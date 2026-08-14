@@ -13,5 +13,5 @@ class Category(BaseModel):
 
     name: str
     description: str | None = None
-
+    display_order: int = 0
     is_active: bool = True

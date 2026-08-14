@@ -29,6 +29,8 @@ def test_commerce_session_renderer_preserves_result_ordinals() -> None:
         "Recent product results:\n"
         "1. Chicken Breast\n"
         "2. Chicken Wings\n"
+        "Current catalog browse (separate ordinal namespace):\n"
+        "None.\n"
         "Selected product:\n"
         "Chicken Breast\n"
         "Cart items:\n"

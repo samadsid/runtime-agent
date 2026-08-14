@@ -137,6 +137,17 @@ class SelectSavedAddressCapability(Capability[CommerceSession]):
                 ),
             )
         session = session.model_copy(update={"pending_saved_profile_use": None})
+        if all(
+            (
+                checkout.customer_name,
+                checkout.phone_number,
+                checkout.delivery_address,
+            )
+        ):
+            checkout = checkout.model_copy(
+                update={"stage": CheckoutStage.READY_TO_CONFIRM}
+            )
+            session = session.model_copy(update={"checkout": checkout})
         outcome = (
             confirmation_review_outcome(checkout)
             if all(

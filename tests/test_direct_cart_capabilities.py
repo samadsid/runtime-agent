@@ -11,9 +11,10 @@ from commerce.models import (
     Product,
 )
 from commerce.repositories import InMemoryProductRepository
-from commerce.services import DirectCartService
+from commerce.services import CartService, DirectCartService
 from runtime.capabilities import CapabilityInput, ExecutionContext
 from runtime.capabilities.add_product_to_cart import AddProductToCartCapability
+from runtime.capabilities.checkout import CheckoutCapability
 from runtime.capabilities.select_product_for_pending_cart_addition import (
     SelectProductForPendingCartAdditionCapability,
 )
@@ -58,6 +59,37 @@ async def test_unique_direct_add_uses_canonical_unit_and_updates_session() -> No
     assert output.session.selected_product == chicken
     assert output.session.cart_items[0].quantity == Decimal(10)
     assert output.outcome.fragments[0].id == "direct-cart-item-added"
+    assert output.session.checkout.stage.value == "REVIEWING_CART"
+    assert output.outcome.fragments[1].text == "Checkout cart review:"
+    assert "1. Chicken Breast — 10 kg at ₹100/kg" in output.outcome.fragments[2].text
+
+
+@pytest.mark.asyncio
+async def test_checkout_after_direct_add_does_not_repeat_cart_review() -> None:
+    chicken = product("Chicken Breast")
+    direct, _, carts = capability([chicken])
+    execution_context = context()
+    added = await direct.execute(
+        CapabilityInput(
+            data={
+                "product_query": "chicken breast",
+                "quantity": 1,
+                "stated_unit": "kg",
+            },
+            session=CommerceSession(),
+            context=execution_context,
+        )
+    )
+
+    checkout = await CheckoutCapability(CartService(carts)).execute(
+        CapabilityInput(session=added.session, context=execution_context)
+    )
+
+    assert checkout.session.checkout.stage.value == "COLLECTING_DETAILS"
+    assert all(
+        fragment.text != "Checkout cart review:"
+        for fragment in checkout.outcome.fragments
+    )
 
 
 @pytest.mark.asyncio

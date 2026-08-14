@@ -393,6 +393,11 @@ minimal pending consent/use workflows. Checkout and orders receive copied value
 snapshots so later saved-address mutations cannot change a pending or historical
 order.
 
+Checkout may proactively retrieve the default saved details through the saved-
+delivery service and present them as one pending offer. The offer keeps the phone
+masked and remains non-authoritative until explicit acceptance reloads and checks
+the saved profile and address before copying their values into checkout.
+
 ---
 
 ## ADR-025
@@ -489,3 +494,25 @@ normalized name or a sole candidate; ambiguity is checkpointed without cart
 mutation. The repository atomically revalidates the product, applies existing
 add-or-replace semantics, and records the trusted request receipt without
 changing the frozen graph or allowing capabilities to call one another.
+
+---
+
+## ADR-030
+
+Browse the authoritative catalog through a deterministic service and a single
+checkpointed page projection.
+
+Status
+
+Accepted
+
+Reason
+
+General assortment requests must not become fabricated product searches. A
+framework-independent catalog browse service owns small-versus-large catalog
+policy, bounded offset pagination, category resolution, and stable ordering.
+PostgreSQL owns catalog facts while `CommerceSession.catalog_browse` retains
+only the latest displayed page for isolated ordinal resolution. Follow-up
+navigation and selection reload tenant-scoped data, and successful product
+selection clears browse state. This adds capabilities without changing the
+frozen graph or coupling capabilities to one another.

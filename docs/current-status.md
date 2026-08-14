@@ -67,12 +67,17 @@ Implemented
 - Multiple saved addresses with list/select/add/update/delete/default operations
 - Explicit save consent and typed second-turn overwrite/profile-use confirmation
 - Dedicated saved-address ordinals and checkout value snapshots
+- Proactive default saved-detail offers at checkout with masked phone display and
+  explicit acceptance before copying values into checkout
 - Explicit COD or online payment-method selection
 - First-visit trusted-channel onboarding with combined detail collection,
   checkpointed review, explicit consent, and atomic saved-profile completion
 - Provider-neutral online checkout with provisional orders and reservations
 - Durable fake-provider checkout, signed webhook simulation, and payment status
 - Idempotent payment retry, expiry/failure release, COD switching, and reconciliation
+- Authoritative catalog browsing for small and large catalogs, including category
+  resolution, bounded product/category pages, next/previous navigation, isolated
+  browse ordinals, expiry, cancellation, and revalidated product selection
 
 The active cart is stored in PostgreSQL through a commerce-domain repository.
 `CommerceSession` carries a checkpointed snapshot refreshed by cart reads and
@@ -82,7 +87,9 @@ Active carts have a monotonic version incremented by effective item mutations.
 Clear-cart confirmation stores the reviewed cart ID and version in checkpointed
 session state, rejects stale confirmation, and leaves the active cart record
 available after its items are cleared. Every effective cart mutation invalidates
-in-progress checkout state.
+in-progress checkout state. A successful product add immediately establishes a
+new version-bound cart review and includes it in the add response, so a following
+checkout request advances to delivery details without repeating the review.
 
 Checkout workflow state is checkpointed in `CommerceSession`. Confirmed orders
 and item snapshots are stored in PostgreSQL, with cart closure and order creation
@@ -133,6 +140,12 @@ is owned by application infrastructure lifecycle.
 
 Typed commerce session state is checkpointed independently of the generic
 message-only conversation contract.
+
+The current catalog browse page is checkpointed as a typed projection with a
+configured TTL. It contains only customer-safe category or product options;
+PostgreSQL remains authoritative and every navigation or selection reload is
+tenant scoped. Browse category, browse product, search product, pending direct
+add, cart, order, recovery, and saved-address ordinals remain separate.
 
 Trusted channel context is transient and excluded from checkpoint state. Saved
 address projections and minimal pending confirmation workflows are checkpointed;

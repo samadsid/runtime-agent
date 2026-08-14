@@ -23,19 +23,19 @@ from runtime.contracts import (
 )
 
 
-class SelectPendingCartProductArguments(BaseModel):
+class ResolvePendingCartAdditionArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ordinal: int | None = Field(default=None, strict=True, ge=1)
-    cancelled: bool | None = Field(default=None, strict=True)
+    cancelled: bool = False
 
     @model_validator(mode="after")
     def exactly_one_action(self):
-        if (self.ordinal is None) == (self.cancelled is not True):
+        if (self.ordinal is not None) == self.cancelled:
             raise ValueError("Provide exactly one of ordinal or cancelled=true.")
         return self
 
 
-class SelectProductForPendingCartAdditionCapability(Capability[CommerceSession]):
+class ResolvePendingCartAdditionCapability(Capability[CommerceSession]):
     def __init__(
         self,
         service: DirectCartService,
@@ -49,7 +49,7 @@ class SelectProductForPendingCartAdditionCapability(Capability[CommerceSession])
     @property
     def metadata(self) -> CapabilityMetadata:
         return CapabilityMetadata(
-            name="select_product_for_pending_cart_addition",
+            name="resolve_pending_cart_addition",
             description="Selects only from pending direct-add options, or cancels that pending addition.",
         )
 
@@ -57,7 +57,7 @@ class SelectProductForPendingCartAdditionCapability(Capability[CommerceSession])
         self, input: CapabilityInput[CommerceSession]
     ) -> CapabilityOutput[CommerceSession]:
         try:
-            arguments = SelectPendingCartProductArguments.model_validate(input.data)
+            arguments = ResolvePendingCartAdditionArguments.model_validate(input.data)
         except ValidationError:
             return self._invalid(input.session)
         pending = input.session.pending_cart_addition
@@ -92,6 +92,10 @@ class SelectProductForPendingCartAdditionCapability(Capability[CommerceSession])
                             id="pending-cart-addition-cancelled",
                             text="The pending cart addition was cancelled.",
                         ),
+                    ),
+                    follow_up=FollowUpRequest(
+                        id="cart-addition-next-action",
+                        question="What would you like to do next?",
                     ),
                 ),
             )
@@ -183,3 +187,8 @@ class SelectProductForPendingCartAdditionCapability(Capability[CommerceSession])
                 ),
             ),
         )
+
+
+# Import compatibility for integrations migrating to the generalized capability.
+SelectPendingCartProductArguments = ResolvePendingCartAdditionArguments
+SelectProductForPendingCartAdditionCapability = ResolvePendingCartAdditionCapability

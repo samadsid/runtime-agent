@@ -11,6 +11,7 @@ from runtime.capabilities import (
     CapabilityName,
     CapabilityOutput,
 )
+from runtime.capabilities.checkout_support import payment_method_label
 from runtime.contracts import (
     ApprovedResponseFragment,
     ExecutionStatus,
@@ -83,13 +84,16 @@ class SwitchOrderToCashOnDeliveryCapability(Capability[CommerceSession]):
                 fragments=(
                     ApprovedResponseFragment(
                         id="switched-to-cash-on-delivery",
-                        text=f"Order {order.id} is CONFIRMED with CASH_ON_DELIVERY.",
+                        text=(
+                            f"Order {order.id} is {order.status.value} with "
+                            f"{payment_method_label(order.payment_method)}."
+                        ),
                     ),
                 ),
                 protected_values=(
                     str(order.id),
                     order.status.value,
-                    order.payment_method.value,
+                    payment_method_label(order.payment_method),
                 ),
             ),
         )
