@@ -363,7 +363,8 @@ class PostgresPaymentRepository(PaymentRepository):
                 order_id,
             )
             await connection.execute(
-                "UPDATE orders SET payment_method='CASH_ON_DELIVERY',confirmed_at=now() WHERE id=$1",
+                """UPDATE orders SET payment_method='CASH_ON_DELIVERY',confirmed_at=now(),
+                          version=version+1,updated_at=now() WHERE id=$1""",
                 order_id,
             )
             await self._transition(
@@ -438,7 +439,8 @@ class PostgresPaymentRepository(PaymentRepository):
                     attempt.id,
                 )
                 await connection.execute(
-                    "UPDATE orders SET confirmed_at=now() WHERE id=$1", attempt.order_id
+                    """UPDATE orders SET confirmed_at=now(),version=version+1,
+                              updated_at=now() WHERE id=$1""", attempt.order_id
                 )
                 await self._transition(
                     connection,
@@ -583,7 +585,8 @@ class PostgresPaymentRepository(PaymentRepository):
         if current == target.value:
             return
         await connection.execute(
-            "UPDATE orders SET status=$2 WHERE id=$1", order_id, target.value
+            """UPDATE orders SET status=$2,version=version+1,updated_at=now()
+               WHERE id=$1""", order_id, target.value
         )
         history_id = uuid4()
         await connection.execute(

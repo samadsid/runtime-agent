@@ -80,6 +80,19 @@ class Settings(BaseSettings):
     NOTIFICATION_TEMPLATE_REGISTRY_VERSION: int = Field(default=1, ge=1)
     TWILIO_NOTIFICATION_CONTENT_SIDS: dict[str, str] = {}
     PAYMENT_NOTIFICATIONS_ENABLED: bool = False
+    STAFF_AUTH_ENABLED: bool = False
+    STAFF_JWT_PRIVATE_KEY: str | None = None
+    STAFF_JWT_PUBLIC_KEY: str | None = None
+    STAFF_JWT_PREVIOUS_PUBLIC_KEYS: dict[str, str] = {}
+    STAFF_JWT_ACTIVE_KEY_ID: str = "primary"
+    STAFF_JWT_ALGORITHM: str = "RS256"
+    STAFF_JWT_ISSUER: str = "commerce-agent"
+    STAFF_JWT_AUDIENCE: str = "commerce-staff"
+    STAFF_ACCESS_TOKEN_TTL_SECONDS: int = Field(default=900, ge=60, le=3600)
+    STAFF_PASSWORD_MIN_LENGTH: int = Field(default=12, ge=8, le=256)
+    STAFF_LOGIN_RATE_LIMIT: int = Field(default=5, ge=1)
+    STAFF_API_RATE_LIMIT: int = Field(default=120, ge=1)
+    STAFF_IDEMPOTENCY_RETENTION_HOURS: int = Field(default=24, ge=1)
 
     def validate_payment_configuration(self) -> None:
         if self.APP_ENV == "production" and self.PAYMENT_PROVIDER == "fake":
@@ -128,6 +141,18 @@ class Settings(BaseSettings):
                 raise RuntimeError("Web chat origins must not contain a path.")
             if self.APP_ENV == "production" and parsed.scheme != "https":
                 raise RuntimeError("Production web chat origins must use HTTPS.")
+
+    def validate_staff_configuration(self) -> None:
+        if not self.STAFF_AUTH_ENABLED:
+            return
+        if not self.STAFF_JWT_PRIVATE_KEY or not self.STAFF_JWT_PUBLIC_KEY:
+            raise RuntimeError("Staff JWT signing and verification keys are required.")
+        if self.STAFF_JWT_ALGORITHM not in {"RS256", "RS384", "RS512", "ES256", "ES384"}:
+            raise RuntimeError("Staff JWT algorithm must be an approved asymmetric algorithm.")
+        if not self.STAFF_JWT_ACTIVE_KEY_ID.strip():
+            raise RuntimeError("A staff JWT active key ID is required.")
+        if not self.STAFF_JWT_ISSUER.strip() or not self.STAFF_JWT_AUDIENCE.strip():
+            raise RuntimeError("Staff JWT issuer and audience are required.")
 
     @property
     def twilio_public_base_url(self) -> str:

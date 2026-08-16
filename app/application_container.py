@@ -33,6 +33,7 @@ from infrastructure.database.repositories import (
     PostgresCartRepository,
     PostgresChannelRepository,
     PostgresChatRequestRepository,
+    PostgresFixedWindowRateLimiter,
     PostgresFulfilmentUnitOfWork,
     PostgresInventoryRepository,
     PostgresNotificationOutboxRepository,
@@ -40,8 +41,11 @@ from infrastructure.database.repositories import (
     PostgresPaymentRepository,
     PostgresProductRepository,
     PostgresSavedDeliveryDetailsRepository,
+    PostgresStaffOrderRepository,
+    PostgresStaffRepository,
 )
 from infrastructure.payments import FakePaymentProvider
+from infrastructure.security import AccessTokenCodec, Argon2PasswordHasher
 from runtime.capabilities import CapabilityRegistry
 from runtime.capabilities.abandon_checkout import AbandonCheckoutCapability
 from runtime.capabilities.accept_available_quantity import (
@@ -136,6 +140,9 @@ from runtime.prompts.renderers import (
     ConversationRenderer,
 )
 from runtime.responses import ResponseGenerator
+from services.staff_auth import StaffAuthenticationService
+from services.staff_fulfilment import StaffFulfilmentService
+from services.staff_orders import StaffOrderQueryService
 
 from .config.settings import Settings
 
@@ -155,6 +162,10 @@ class ApplicationContainer:
         self.notification_outbox_processor = None
         self.notification_reconciliation_job = None
         self.twilio_configured = False
+        self.staff_token_codec: AccessTokenCodec | None = None
+        self.staff_authentication_service: StaffAuthenticationService | None = None
+        self.staff_fulfilment_service: StaffFulfilmentService | None = None
+        self.staff_order_query_service: StaffOrderQueryService | None = None
 
         self._build_infrastructure()
 
@@ -179,6 +190,7 @@ class ApplicationContainer:
         self.settings.validate_twilio_configuration()
         self.settings.validate_notification_configuration()
         self.settings.validate_web_chat_configuration()
+        self.settings.validate_staff_configuration()
         self._build_twilio()
         await self.database_pool.connect()
         try:
@@ -230,6 +242,41 @@ class ApplicationContainer:
             content_sids=self.settings.TWILIO_NOTIFICATION_CONTENT_SIDS,
         )
         self.chat_request_repository = PostgresChatRequestRepository(self.database_pool)
+        self.staff_repository = PostgresStaffRepository(self.database_pool)
+        self.staff_order_repository = PostgresStaffOrderRepository(self.database_pool)
+        self.staff_rate_limiter = (
+            FixedWindowRateLimiter()
+            if self.settings.APP_ENV in {"development", "test"}
+            else PostgresFixedWindowRateLimiter(self.database_pool)
+        )
+        if self.settings.STAFF_AUTH_ENABLED:
+            public_keys = {
+                key_id: value.replace("\\n", "\n")
+                for key_id, value in self.settings.STAFF_JWT_PREVIOUS_PUBLIC_KEYS.items()
+            }
+            public_keys[self.settings.STAFF_JWT_ACTIVE_KEY_ID] = (
+                self.settings.STAFF_JWT_PUBLIC_KEY or ""
+            ).replace("\\n", "\n")
+            token_codec = AccessTokenCodec(
+                private_key=(self.settings.STAFF_JWT_PRIVATE_KEY or "").replace("\\n", "\n"),
+                public_keys=public_keys,
+                active_key_id=self.settings.STAFF_JWT_ACTIVE_KEY_ID,
+                algorithm=self.settings.STAFF_JWT_ALGORITHM,
+                issuer=self.settings.STAFF_JWT_ISSUER,
+                audience=self.settings.STAFF_JWT_AUDIENCE,
+                ttl_seconds=self.settings.STAFF_ACCESS_TOKEN_TTL_SECONDS,
+            )
+            self.staff_token_codec = token_codec
+            self.staff_authentication_service = StaffAuthenticationService(
+                self.staff_repository, Argon2PasswordHasher(), token_codec,
+                self.settings.DEFAULT_TENANT_ID,
+            )
+            self.staff_fulfilment_service = StaffFulfilmentService(
+                self.database_pool, self.settings.STAFF_IDEMPOTENCY_RETENTION_HOURS
+            )
+            self.staff_order_query_service = StaffOrderQueryService(
+                self.staff_order_repository
+            )
 
     def _build_twilio(self) -> None:
         if self.settings.TWILIO_WHATSAPP_ENABLED:

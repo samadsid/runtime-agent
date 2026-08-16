@@ -535,3 +535,22 @@ outside commerce transactions. A notification outbox owns business intent and a
 separate channel outbox owns provider delivery. Reviewed versioned templates replace
 LLM generation for proactive messages; leased workers, idempotent delivery links,
 and reconciliation make retries harmless without changing the frozen graph.
+
+---
+
+## ADR-032
+
+Expose staff fulfilment through a separate authenticated, tenant-scoped HTTP path.
+
+Status
+
+Accepted
+
+Reason
+
+Staff operations are deterministic administrative commands and must not be
+authorized or interpreted by the customer planner or an LLM. Short-lived
+asymmetrically signed tokens establish staff identity, while current PostgreSQL
+account and membership records establish the tenant and role on every request.
+Order versions prevent stale writes, and a transaction-scoped idempotency receipt
+makes retries commit with the existing inventory, history, and notification effects.

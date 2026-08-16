@@ -34,6 +34,22 @@ Capabilities
 ResponseNode
 ```
 
+Authenticated staff fulfilment uses a separate deterministic path:
+
+```
+Staff client → FastAPI staff router → JWT authentication
+             → database-backed tenant membership authorization
+             → staff order query / existing fulfilment service
+             → PostgreSQL transaction
+```
+
+The staff path never invokes `CommerceRuntime`, the planner, LangGraph, or the
+response LLM. PostgreSQL owns staff identities and memberships. The configured
+default tenant is re-authorized from current membership data on every request.
+Staff mutations use optimistic order versions and transactionally persist the
+order update, inventory effect, status history, notification intent, and API
+idempotency result.
+
 ---
 
 ## Layers

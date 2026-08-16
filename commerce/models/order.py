@@ -65,5 +65,7 @@ class Order(BaseModel):
     delivery_address: str
     created_at: datetime
     confirmed_at: datetime | None
+    version: int = Field(default=1, ge=1)
+    updated_at: datetime | None = None
     items: tuple[OrderItem, ...] = ()
     status_history: tuple[OrderStatusHistory, ...] = ()

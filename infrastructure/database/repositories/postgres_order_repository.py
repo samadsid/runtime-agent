@@ -498,7 +498,8 @@ class PostgresOrderRepository(OrderRepository):
             return current
         history_id = uuid4()
         await self._connection.execute(
-            "UPDATE orders SET status = $2 WHERE id = $1",
+            """UPDATE orders SET status=$2,version=version+1,updated_at=now()
+               WHERE id=$1""",
             order_id,
             target_status.value,
         )
@@ -565,7 +566,7 @@ class PostgresOrderRepository(OrderRepository):
             """
             SELECT id, source_cart_id, conversation_id, status, payment_method,
                    customer_name, phone_number, delivery_address,
-                   created_at, confirmed_at
+                   created_at, confirmed_at, version, updated_at
             FROM orders WHERE id = $1
             """,
             order_id,
@@ -602,6 +603,8 @@ class PostgresOrderRepository(OrderRepository):
             delivery_address=row["delivery_address"],
             created_at=row["created_at"],
             confirmed_at=row["confirmed_at"],
+            version=row["version"],
+            updated_at=row["updated_at"],
             items=tuple(OrderItem.model_validate(dict(item)) for item in item_rows),
             status_history=tuple(
                 OrderStatusHistory(

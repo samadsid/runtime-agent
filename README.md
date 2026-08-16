@@ -1,5 +1,28 @@
 # AI Commerce Agent
 
+## Staff fulfilment API
+
+When `STAFF_AUTH_ENABLED=true`, staff endpoints are exposed under `/api/staff/v1`.
+Configure an asymmetric JWT private/public key pair, issuer, audience, active key
+ID, and the existing `DEFAULT_TENANT_ID`; no signing key or usable production
+secret has an application default. Previous public keys can be supplied through
+`STAFF_JWT_PREVIOUS_PUBLIC_KEYS` during rotation.
+
+After applying Alembic migrations, bootstrap the first account without starting
+the API:
+
+```bash
+python -m app.staff.bootstrap \
+  --email admin@example.com \
+  --display-name "Operations Admin" \
+  --tenant-id 00000000-0000-0000-0000-000000000001 \
+  --role ADMIN
+```
+
+The command prompts without echo. Automation may pipe a secret and add
+`--password-stdin`. Staff list/detail/status APIs derive the tenant and actor from
+the current authenticated membership; callers never submit either value.
+
 ## Database setup
 
 Configure the `POSTGRES_*` environment variables, then apply application-owned
@@ -11,8 +34,9 @@ alembic upgrade head
 
 Local development uses LangGraph's in-memory checkpointer by default. Set
 `CHECKPOINTER_BACKEND=postgres` in production; startup will initialize and
-migrate LangGraph's own checkpoint tables. `DEFAULT_TENANT_ID` supplies the
-server-owned tenant boundary until authentication is implemented.
+migrate LangGraph's own checkpoint tables. `DEFAULT_TENANT_ID` remains the
+server-owned customer-channel boundary and is also the only staff tenant selectable
+in this first authenticated staff milestone.
 `CUSTOMER_SUPPORT_PATH` is required and supplies the exact support contact or
 path shown when an order is no longer eligible for self-service cancellation.
 

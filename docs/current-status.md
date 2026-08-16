@@ -8,6 +8,12 @@
 - CommerceRuntime
 - CommerceGraph
 
+The authenticated staff fulfilment API is available separately under
+`/api/staff/v1`. It uses Argon2id credentials, short-lived asymmetric JWTs,
+database-backed account/membership authorization, tenant-scoped order queries,
+cursor pagination, optimistic order versions, and transactional idempotent status
+updates. It does not enter the customer runtime or graph.
+
 ---
 
 ### Graph
@@ -220,8 +226,6 @@ the frozen graph remain unchanged.
 
 ## Future
 
-- Authentication
-- Authenticated staff fulfilment status API
 - Multi-tenant support
 - Streaming
 - Human-in-the-loop

@@ -33,6 +33,12 @@ class FulfilmentService:
     ) -> None:
         self._unit_of_work_factory = unit_of_work_factory
 
+    @classmethod
+    def is_transition_allowed(
+        cls, current: OrderStatus, target: OrderStatus
+    ) -> bool:
+        return target in cls._ALLOWED_TRANSITIONS[current]
+
     async def transition_order(
         self,
         order_id: UUID,
@@ -46,7 +52,7 @@ class FulfilmentService:
                 raise OrderNotFoundError(f"Order {order_id} does not exist.")
             if order.status == target_status:
                 return order
-            if target_status not in self._ALLOWED_TRANSITIONS[order.status]:
+            if not self.is_transition_allowed(order.status, target_status):
                 raise InvalidOrderTransitionError(
                     f"Order cannot transition from {order.status.value} "
                     f"to {target_status.value}."

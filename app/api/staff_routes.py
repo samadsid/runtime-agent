@@ -1,0 +1,226 @@
+from __future__ import annotations
+
+import json
+import re
+from datetime import datetime, timedelta
+from hashlib import sha256
+from typing import Annotated
+from uuid import UUID, uuid4
+
+from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from app.api.staff_models import (
+    StaffLoginRequest,
+    StaffLoginResponse,
+    StaffMembershipResponse,
+    StaffMeResponse,
+    StaffTransitionRequest,
+    StaffTransitionResponse,
+)
+from app.observability.staff_metrics import (
+    STAFF_AUTHORIZATION_DENIALS,
+    STAFF_LOGIN_ATTEMPTS,
+)
+from commerce.models import (
+    OrderStatus,
+    StaffOrderFilters,
+    StaffRequestContext,
+    StaffRole,
+)
+from commerce.repositories import InvalidOrderTransitionError, OrderNotFoundError
+from infrastructure.security import InvalidAccessTokenError
+from services.staff_auth import (
+    InvalidStaffCredentialsError,
+    StaffAccessDeniedError,
+    normalize_staff_email,
+)
+from services.staff_fulfilment import (
+    IdempotencyKeyConflictError,
+    StaffTransitionUnavailableError,
+    StaleOrderVersionError,
+)
+from services.staff_orders import InvalidStaffOrderCursorError
+
+router = APIRouter(prefix="/api/staff/v1", tags=["staff"])
+bearer = HTTPBearer(auto_error=False)
+IDEMPOTENCY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
+IF_MATCH_PATTERN = re.compile(r'^"([1-9][0-9]*)"$')
+
+
+class StaffAPIError(Exception):
+    def __init__(self, status: int, code: str, message: str, request_id: str) -> None:
+        self.status = status
+        self.code = code
+        self.message = message
+        self.request_id = request_id
+
+
+def request_id(request: Request) -> str:
+    supplied = request.headers.get("X-Request-Id", "").strip()
+    return supplied[:128] if supplied else str(uuid4())
+
+
+def require_enabled(request: Request):
+    container = request.app.state.application_container
+    if not container.settings.STAFF_AUTH_ENABLED:
+        raise StaffAPIError(404, "not_found", "Not found.", request_id(request))
+    return container
+
+
+async def staff_context(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
+) -> StaffRequestContext:
+    rid = request_id(request)
+    container = require_enabled(request)
+    if credentials is None or credentials.scheme.casefold() != "bearer":
+        raise StaffAPIError(401, "invalid_access_token", "A valid access token is required.", rid)
+    try:
+        staff_id = container.staff_token_codec.decode(credentials.credentials)
+        context = await container.staff_authentication_service.load_request_context(staff_id, rid)
+    except InvalidAccessTokenError as error:
+        raise StaffAPIError(401, "invalid_access_token", "A valid access token is required.", rid) from error
+    except StaffAccessDeniedError as error:
+        STAFF_AUTHORIZATION_DENIALS.labels("active_membership").inc()
+        raise StaffAPIError(403, "staff_access_denied", "Staff access is denied.", rid) from error
+    client = request.client.host if request.client else "unknown"
+    if not await container.staff_rate_limiter.allow(
+        f"api:{context.staff_id}:{client}", container.settings.STAFF_API_RATE_LIMIT
+    ):
+        raise StaffAPIError(429, "rate_limit_exceeded", "The request rate limit was exceeded.", rid)
+    return context
+
+
+@router.post("/auth/login", response_model=StaffLoginResponse)
+async def login(body: StaffLoginRequest, request: Request) -> StaffLoginResponse:
+    container = require_enabled(request)
+    rid = request_id(request)
+    if container.settings.APP_ENV == "production" and request.url.scheme != "https":
+        raise StaffAPIError(400, "invalid_request", "HTTPS is required.", rid)
+    client = request.client.host if request.client else "unknown"
+    key = f"login:{normalize_staff_email(body.email)}:{client}"
+    if not await container.staff_rate_limiter.allow(key, container.settings.STAFF_LOGIN_RATE_LIMIT):
+        STAFF_LOGIN_ATTEMPTS.labels("rate_limited").inc()
+        raise StaffAPIError(429, "rate_limit_exceeded", "The request rate limit was exceeded.", rid)
+    try:
+        account = await container.staff_authentication_service.authenticate(
+            body.email, body.password, request_id=rid
+        )
+    except InvalidStaffCredentialsError as error:
+        STAFF_LOGIN_ATTEMPTS.labels("invalid_credentials").inc()
+        raise StaffAPIError(401, "invalid_credentials", "The email or password is invalid.", rid) from error
+    STAFF_LOGIN_ATTEMPTS.labels("success").inc()
+    return StaffLoginResponse(
+        access_token=container.staff_token_codec.encode(account.id),
+        expires_in=container.staff_token_codec.expires_in,
+    )
+
+
+@router.get("/me", response_model=StaffMeResponse)
+async def me(request: Request, context: Annotated[StaffRequestContext, Depends(staff_context)]) -> StaffMeResponse:
+    container = request.app.state.application_container
+    account = await container.staff_repository.get_account(context.staff_id)
+    if account is None:
+        raise StaffAPIError(403, "staff_access_denied", "Staff access is denied.", context.request_id)
+    memberships = await container.staff_authentication_service.memberships(context.staff_id)
+    return StaffMeResponse(
+        staff_id=account.id, display_name=account.display_name,
+        memberships=tuple(StaffMembershipResponse(tenant_id=item.tenant_id, role=item.role.value) for item in memberships),
+    )
+
+
+@router.get("/orders")
+async def list_orders(
+    request: Request,
+    context: Annotated[StaffRequestContext, Depends(staff_context)],
+    status: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    order_reference: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    cursor: str | None = None,
+):
+    if status is not None:
+        try:
+            status = OrderStatus(status).value
+        except ValueError as error:
+            raise StaffAPIError(400, "invalid_request", "The order status is invalid.", context.request_id) from error
+    supplied_dates = (created_from, created_to)
+    if any(value is not None and value.utcoffset() is None for value in supplied_dates):
+        raise StaffAPIError(
+            400, "invalid_request", "Order dates must include a UTC offset.",
+            context.request_id,
+        )
+    if created_from and created_to and (
+        created_from > created_to or created_to - created_from > timedelta(days=31)
+    ):
+        raise StaffAPIError(400, "invalid_request", "The order date range is invalid.", context.request_id)
+    try:
+        page = await request.app.state.application_container.staff_order_query_service.list_orders(
+            context, StaffOrderFilters(status=status, created_from=created_from,
+                                       created_to=created_to, order_reference=order_reference),
+            limit, cursor,
+        )
+    except InvalidStaffOrderCursorError as error:
+        raise StaffAPIError(400, "invalid_request", "The pagination cursor is invalid.", context.request_id) from error
+    return page
+
+
+@router.get("/orders/{order_id}")
+async def get_order(order_id: UUID, request: Request,
+                    context: Annotated[StaffRequestContext, Depends(staff_context)]):
+    details = await request.app.state.application_container.staff_order_query_service.get_order(context, order_id)
+    if details is None:
+        raise StaffAPIError(404, "order_not_found", "The order was not found.", context.request_id)
+    return details
+
+
+@router.patch("/orders/{order_id}/status", response_model=StaffTransitionResponse)
+async def transition_order(
+    order_id: UUID, body: StaffTransitionRequest, request: Request,
+    context: Annotated[StaffRequestContext, Depends(staff_context)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+) -> StaffTransitionResponse:
+    if idempotency_key is None or not IDEMPOTENCY_PATTERN.fullmatch(idempotency_key):
+        raise StaffAPIError(400, "invalid_request", "A valid Idempotency-Key is required.", context.request_id)
+    match = IF_MATCH_PATTERN.fullmatch(if_match or "")
+    if match is None:
+        raise StaffAPIError(400, "invalid_request", "A valid If-Match version is required.", context.request_id)
+    try:
+        target = OrderStatus(body.target_status)
+    except ValueError as error:
+        raise StaffAPIError(400, "invalid_request", "The target status is invalid.", context.request_id) from error
+    reason = body.reason or None
+    if target == OrderStatus.CANCELLED and context.role != StaffRole.ADMIN:
+        STAFF_AUTHORIZATION_DENIALS.labels("cancel_order").inc()
+        raise StaffAPIError(403, "staff_access_denied", "Staff access is denied.", context.request_id)
+    if target == OrderStatus.CANCELLED and not reason:
+        raise StaffAPIError(422, "cancellation_reason_required", "A cancellation reason is required.", context.request_id)
+    expected = int(match.group(1))
+    canonical = json.dumps({"tenant_id": str(context.tenant_id), "staff_id": str(context.staff_id),
+                            "operation": "transition_order", "order_id": str(order_id),
+                            "expected_version": expected, "target_status": target.value,
+                            "reason": reason}, sort_keys=True, separators=(",", ":"))
+    try:
+        result = await request.app.state.application_container.staff_fulfilment_service.transition_order(
+            context=context, order_id=order_id, expected_version=expected,
+            target_status=target, reason=reason, idempotency_key=idempotency_key,
+            request_hash=sha256(canonical.encode()).hexdigest(),
+        )
+    except StaffAccessDeniedError as error:
+        raise StaffAPIError(403, "staff_access_denied", "Staff access is denied.", context.request_id) from error
+    except OrderNotFoundError as error:
+        raise StaffAPIError(404, "order_not_found", "The order was not found.", context.request_id) from error
+    except InvalidOrderTransitionError as error:
+        raise StaffAPIError(409, "invalid_transition", "The requested order transition is not allowed.", context.request_id) from error
+    except StaleOrderVersionError as error:
+        message = f"The order changed; current version is {error.version} and status is {error.status.value}."
+        raise StaffAPIError(409, "stale_order_version", message, context.request_id) from error
+    except IdempotencyKeyConflictError as error:
+        raise StaffAPIError(409, "idempotency_key_conflict", "The idempotency key was used for different input.", context.request_id) from error
+    except StaffTransitionUnavailableError as error:
+        raise StaffAPIError(503, "temporarily_unavailable", "The operation is temporarily unavailable.", context.request_id) from error
+    return StaffTransitionResponse(order_id=result.order_id, status=result.status.value,
+                                   version=result.version, transitioned_at=result.transitioned_at)
