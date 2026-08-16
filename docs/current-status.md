@@ -109,10 +109,9 @@ checkout state; it does not clear the active cart or touch orders or inventory.
 
 Confirmation also locks product-level balances and creates active inventory
 reservations in that transaction. Product search excludes products without
-positive sellable inventory. The fulfilment service and PostgreSQL unit of work
-are implemented for staff-side status changes; HTTP exposure remains deferred
-until staff authentication, authorization, actor derivation, and request
-correlation are available.
+positive sellable inventory. The fulfilment service and PostgreSQL unit of work are
+exposed through the authenticated staff API with authorization, actor derivation,
+optimistic versions, idempotency, and safe request correlation.
 
 Confirmation now requires the exact checkpointed cart version reviewed by the
 customer. It returns typed confirmed, stock-unavailable, or stale-checkout
@@ -221,6 +220,28 @@ Completed
 
 The browser remains a presentation-only channel adapter. Commerce behavior and
 the frozen graph remain unchanged.
+
+---
+
+### Staff Mobile Dashboard
+
+Implemented
+
+- Android-first Expo and strict TypeScript application in `staff-mobile/`
+- SecureStore access-token lifecycle with cold-start `/me` validation
+- Role-aware dashboard, cursor-paginated order queue, and protected order details
+- Server-provided fulfilment actions, admin cancellation, optimistic versions, and
+  retained logical idempotency keys for ambiguous retries
+- In-memory-only customer PII, coordinated session expiry, and complete logout cleanup
+- Runtime-validated API contracts, accessible light/dark design primitives, and offline,
+  loading, empty, error, and conflict states
+- Unit, component, API-client, and Maestro acceptance coverage
+- Development, staging preview APK, and production AAB build profiles
+
+The staff REST API now exposes explicit mobile-safe order DTOs, active membership,
+typed permitted actions, and a tenant-scoped dashboard summary. Signing a preview APK
+and physical-device/staging execution require deployment-owned EAS credentials, seeded
+staff accounts, and a reachable HTTPS staging backend.
 
 ---
 

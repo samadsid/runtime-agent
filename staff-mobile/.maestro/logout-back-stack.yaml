@@ -1,0 +1,12 @@
+appId: com.commerceagent.staff.staging
+name: Logout clears protected back stack
+---
+- launchApp
+- tapOn: Account
+- tapOn: Log out
+- tapOn:
+    text: Log out
+    index: 1
+- assertVisible: Staff operations
+- back
+- assertNotVisible: Account

@@ -1,0 +1,19 @@
+appId: com.commerceagent.staff.staging
+name: Staff advances a confirmed order
+---
+- launchApp:
+    clearState: true
+- tapOn: Email
+- inputText: ${STAFF_EMAIL}
+- tapOn: Password
+- inputText: ${STAFF_PASSWORD}
+- tapOn:
+    id: login-submit
+- assertVisible: Fulfilment overview
+- tapOn: View confirmed
+- tapOn:
+    text: ".*CONFIRMED.*"
+    index: 0
+- tapOn: Mark as preparing
+- tapOn: Confirm
+- assertVisible: Preparing

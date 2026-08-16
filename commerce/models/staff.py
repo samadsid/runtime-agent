@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from .order import Order
+from .fulfilment import FulfilmentActorType
 
 
 class StaffStatus(str, Enum):
@@ -83,11 +83,66 @@ class StaffOrderPage(BaseModel):
     next_cursor: str | None = None
 
 
+class StaffOrderItem(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    product_name: str
+    unit: str
+    unit_price: Decimal
+    currency: str
+    quantity: Decimal
+    line_total: Decimal
+
+
+class StaffOrderTimelineEntry(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    from_status: str | None
+    to_status: str
+    actor_type: FulfilmentActorType
+    reason: str | None
+    created_at: datetime
+
+
+class StaffPermittedOrderAction(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    target_status: str
+    requires_reason: bool = False
+
+
 class StaffOrderDetails(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    order: Order
+    order_id: UUID
+    order_reference: str
+    status: str
+    payment_method: str
+    customer_name: str
+    phone_number: str
+    delivery_address: str
+    created_at: datetime
+    confirmed_at: datetime | None
+    updated_at: datetime | None
+    version: int
+    items: tuple[StaffOrderItem, ...]
+    timeline: tuple[StaffOrderTimelineEntry, ...]
     total: Decimal
     currency: str
     payment_status: str | None = None
-    permitted_actions: tuple[str, ...] = ()
+    permitted_actions: tuple[StaffPermittedOrderAction, ...] = ()
+
+
+class StaffDashboardCounts(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    confirmed: int = 0
+    preparing: int = 0
+    out_for_delivery: int = 0
+
+
+class StaffDashboardSummary(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    counts: StaffDashboardCounts
+    oldest_confirmed_orders: tuple[StaffOrderListItem, ...] = ()

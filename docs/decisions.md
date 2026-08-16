@@ -554,3 +554,22 @@ asymmetrically signed tokens establish staff identity, while current PostgreSQL
 account and membership records establish the tenant and role on every request.
 Order versions prevent stale writes, and a transaction-scoped idempotency receipt
 makes retries commit with the existing inventory, history, and notification effects.
+
+---
+
+## ADR-033
+
+Use one Expo mobile adapter for staff and administrator fulfilment operations.
+
+Status
+
+Accepted
+
+Reason
+
+Both roles operate the same tenant-scoped staff API, while the backend remains
+authoritative for identity, permissions, permitted actions, transitions, inventory,
+audit history, and notification intent. SecureStore owns only the short-lived access
+token, TanStack Query owns memory-only server projections, and one retained client
+idempotency key represents each unresolved logical status action. The mobile adapter
+does not invoke or modify the customer graph.

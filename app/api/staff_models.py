@@ -28,6 +28,7 @@ class StaffMembershipResponse(BaseModel):
 class StaffMeResponse(BaseModel):
     staff_id: UUID
     display_name: str
+    active_membership: StaffMembershipResponse
     memberships: tuple[StaffMembershipResponse, ...]
 
 
@@ -41,8 +42,3 @@ class StaffTransitionResponse(BaseModel):
     status: str
     version: int
     transitioned_at: datetime
-
-
-class StaffOrderListResponse(BaseModel):
-    items: tuple[dict, ...]
-    next_cursor: str | None

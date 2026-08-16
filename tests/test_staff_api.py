@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse
 from app.api.staff_routes import StaffAPIError, router
 from commerce.models import (
     StaffAccount,
+    StaffDashboardCounts,
+    StaffDashboardSummary,
     StaffRequestContext,
     StaffRole,
     StaffStatus,
@@ -68,6 +70,15 @@ def application() -> tuple[FastAPI, StaffAccount]:
         async def get_account(self, staff_id):
             return account if staff_id == account.id else None
 
+    class Orders:
+        async def dashboard_summary(self, context):
+            assert context.tenant_id == membership.tenant_id
+            return StaffDashboardSummary(
+                counts=StaffDashboardCounts(
+                    confirmed=3, preparing=2, out_for_delivery=1
+                )
+            )
+
     container = SimpleNamespace(
         settings=SimpleNamespace(
             STAFF_AUTH_ENABLED=True,
@@ -79,6 +90,7 @@ def application() -> tuple[FastAPI, StaffAccount]:
         staff_rate_limiter=Limiter(),
         staff_authentication_service=Authentication(),
         staff_repository=Repository(),
+        staff_order_query_service=Orders(),
     )
     app = FastAPI()
     app.state.application_container = container
@@ -128,3 +140,21 @@ async def test_missing_access_token_uses_stable_error() -> None:
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "invalid_access_token"
     assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_summary_is_scoped_to_active_context() -> None:
+    app, account = application()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as http:
+        response = await http.get(
+            "/api/staff/v1/dashboard/summary",
+            headers={"Authorization": f"Bearer token:{account.id}"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "counts": {"confirmed": 3, "preparing": 2, "out_for_delivery": 1},
+        "oldest_confirmed_orders": [],
+    }

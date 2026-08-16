@@ -7,9 +7,11 @@ from uuid import UUID
 
 from commerce.models import (
     OrderStatus,
+    StaffDashboardSummary,
     StaffOrderDetails,
     StaffOrderFilters,
     StaffOrderPage,
+    StaffPermittedOrderAction,
     StaffRequestContext,
     StaffRole,
 )
@@ -66,12 +68,23 @@ class StaffOrderQueryService:
         if details is None:
             return None
         allowed = tuple(
-            status
+            StaffPermittedOrderAction(
+                target_status=status.value,
+                requires_reason=status == OrderStatus.CANCELLED,
+            )
             for status in OrderStatus
-            if FulfilmentService.is_transition_allowed(details.order.status, status)
+            if FulfilmentService.is_transition_allowed(OrderStatus(details.status), status)
         )
         if context.role != StaffRole.ADMIN:
-            allowed = tuple(value for value in allowed if value != OrderStatus.CANCELLED)
+            allowed = tuple(
+                value for value in allowed
+                if value.target_status != OrderStatus.CANCELLED.value
+            )
         return details.model_copy(
-            update={"permitted_actions": tuple(value.value for value in allowed)}
+            update={"permitted_actions": allowed}
         )
+
+    async def dashboard_summary(self, context: StaffRequestContext) -> StaffDashboardSummary:
+        counts = await self._repository.dashboard_counts(context.tenant_id)
+        queue = await self._repository.oldest_confirmed_orders(context.tenant_id, 5)
+        return StaffDashboardSummary(counts=counts, oldest_confirmed_orders=queue)

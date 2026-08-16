@@ -23,6 +23,13 @@ The command prompts without echo. Automation may pipe a secret and add
 `--password-stdin`. Staff list/detail/status APIs derive the tenant and actor from
 the current authenticated membership; callers never submit either value.
 
+## Staff mobile application
+
+The Android-first Expo application lives in `staff-mobile/`. It consumes only the
+authenticated staff API and keeps protected order data in memory. Configure its public
+API URL and environment using `staff-mobile/.env.example`; setup, tests, EAS preview APK,
+and seeded-staging instructions are in `staff-mobile/README.md`.
+
 ## Database setup
 
 Configure the `POSTGRES_*` environment variables, then apply application-owned
@@ -131,3 +138,36 @@ Operational endpoints are
 Channel bodies are sensitive. The operating retention policy is to redact
 bodies after 30 days and delete associated channel delivery records after 90
 days through deployment-owned scheduled retention tooling.
+
+
+Generate the RSA keys
+
+From your repository root:
+
+mkdir -p secrets
+
+openssl genpkey \
+  -algorithm RSA \
+  -pkeyopt rsa_keygen_bits:3072 \
+  -out secrets/staff-jwt-private.pem
+
+openssl pkey \
+  -in secrets/staff-jwt-private.pem \
+  -pubout \
+  -out secrets/staff-jwt-public.pem
+
+chmod 600 secrets/staff-jwt-private.pem
+chmod 644 secrets/staff-jwt-public.pem
+
+Verify them:
+
+openssl pkey \
+  -in secrets/staff-jwt-private.pem \
+  -check \
+  -noout
+
+openssl pkey \
+  -pubin \
+  -in secrets/staff-jwt-public.pem \
+  -text \
+  -noout

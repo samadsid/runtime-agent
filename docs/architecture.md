@@ -303,6 +303,17 @@ receipts deduplicate browser retries, and an infrastructure advisory lock
 serializes calls to one graph thread. The frontend never owns commerce state or
 interprets internal outcomes.
 
+The staff mobile application is a separate authenticated outer adapter around the
+deterministic staff REST path. It validates short-lived tokens through `/me`, keeps
+order and delivery data only in an in-memory query cache, and renders only transition
+actions returned by the backend. Mobile status requests carry the authoritative order
+version and one idempotency key per logical action; the app never derives permissions,
+transition policy, inventory effects, notification behavior, or tenant identity.
+
+The tenant-scoped staff dashboard summary is a query projection over orders. It returns
+bounded operational counts and a five-order actionable queue without entering the
+customer runtime, graph, planner, or capability registry.
+
 ## Online Payments
 
 Online payments preserve the existing graph. Payment capabilities call a

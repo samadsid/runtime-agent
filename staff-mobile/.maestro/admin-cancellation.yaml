@@ -1,0 +1,20 @@
+appId: com.commerceagent.staff.staging
+name: Admin cancels an eligible order
+---
+- launchApp:
+    clearState: true
+- tapOn: Email
+- inputText: ${ADMIN_EMAIL}
+- tapOn: Password
+- inputText: ${ADMIN_PASSWORD}
+- tapOn:
+    id: login-submit
+- tapOn: Orders
+- tapOn:
+    text: ".*CONFIRMED.*"
+    index: 0
+- tapOn: Cancel order
+- tapOn: Cancellation reason
+- inputText: Acceptance test cancellation
+- tapOn: Cancel order
+- assertVisible: Cancelled

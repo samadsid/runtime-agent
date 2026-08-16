@@ -1,6 +1,6 @@
 """add authenticated staff fulfilment API persistence
 
-Revision ID: 016_authenticated_staff_fulfilment
+Revision ID: 016_staff_fulfilment_auth
 Revises: 015_customer_order_notifications
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "016_authenticated_staff_fulfilment"
+revision: str = "016_staff_fulfilment_auth"
 down_revision: str | None = "015_customer_order_notifications"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None

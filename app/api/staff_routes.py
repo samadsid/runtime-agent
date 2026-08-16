@@ -24,7 +24,10 @@ from app.observability.staff_metrics import (
 )
 from commerce.models import (
     OrderStatus,
+    StaffDashboardSummary,
+    StaffOrderDetails,
     StaffOrderFilters,
+    StaffOrderPage,
     StaffRequestContext,
     StaffRole,
 )
@@ -124,13 +127,20 @@ async def me(request: Request, context: Annotated[StaffRequestContext, Depends(s
     if account is None:
         raise StaffAPIError(403, "staff_access_denied", "Staff access is denied.", context.request_id)
     memberships = await container.staff_authentication_service.memberships(context.staff_id)
+    membership_responses = tuple(
+        StaffMembershipResponse(tenant_id=item.tenant_id, role=item.role.value)
+        for item in memberships
+    )
+    active_membership = StaffMembershipResponse(
+        tenant_id=context.tenant_id, role=context.role.value
+    )
     return StaffMeResponse(
         staff_id=account.id, display_name=account.display_name,
-        memberships=tuple(StaffMembershipResponse(tenant_id=item.tenant_id, role=item.role.value) for item in memberships),
+        active_membership=active_membership, memberships=membership_responses,
     )
 
 
-@router.get("/orders")
+@router.get("/orders", response_model=StaffOrderPage)
 async def list_orders(
     request: Request,
     context: Annotated[StaffRequestContext, Depends(staff_context)],
@@ -167,13 +177,23 @@ async def list_orders(
     return page
 
 
-@router.get("/orders/{order_id}")
+@router.get("/orders/{order_id}", response_model=StaffOrderDetails)
 async def get_order(order_id: UUID, request: Request,
                     context: Annotated[StaffRequestContext, Depends(staff_context)]):
     details = await request.app.state.application_container.staff_order_query_service.get_order(context, order_id)
     if details is None:
         raise StaffAPIError(404, "order_not_found", "The order was not found.", context.request_id)
     return details
+
+
+@router.get("/dashboard/summary", response_model=StaffDashboardSummary)
+async def dashboard_summary(
+    request: Request,
+    context: Annotated[StaffRequestContext, Depends(staff_context)],
+) -> StaffDashboardSummary:
+    return await request.app.state.application_container.staff_order_query_service.dashboard_summary(
+        context
+    )
 
 
 @router.patch("/orders/{order_id}/status", response_model=StaffTransitionResponse)
