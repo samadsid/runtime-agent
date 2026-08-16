@@ -25,6 +25,10 @@ from commerce.models import (
 from commerce.repositories import OrderConfirmationPersistenceError, OrderRepository
 from infrastructure.database import DatabasePool
 
+from .postgres_notification_outbox_repository import (
+    PostgresNotificationOutboxRepository,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -268,6 +272,7 @@ class PostgresOrderRepository(OrderRepository):
                 shortages=shortages,
             )
 
+        history_id = uuid4()
         await connection.execute(
             """
             INSERT INTO orders (
@@ -339,8 +344,11 @@ class PostgresOrderRepository(OrderRepository):
                 actor_type, reason, created_at
             ) VALUES ($1, $2, NULL, 'CONFIRMED', NULL, 'CUSTOMER', NULL, now())
             """,
-            uuid4(),
+            history_id,
             order_id,
+        )
+        await PostgresNotificationOutboxRepository.append_order_transition(
+            connection, order_id, history_id
         )
         order = await self._load_order(connection, order_id)
         logger.info(
@@ -488,6 +496,7 @@ class PostgresOrderRepository(OrderRepository):
             raise RuntimeError("Order disappeared during a status transition.")
         if current.status == target_status:
             return current
+        history_id = uuid4()
         await self._connection.execute(
             "UPDATE orders SET status = $2 WHERE id = $1",
             order_id,
@@ -500,13 +509,16 @@ class PostgresOrderRepository(OrderRepository):
                 actor_type, reason, created_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, now())
             """,
-            uuid4(),
+            history_id,
             order_id,
             current.status.value,
             target_status.value,
             actor.actor_id,
             actor.actor_type.value,
             reason,
+        )
+        await PostgresNotificationOutboxRepository.append_order_transition(
+            self._connection, order_id, history_id
         )
         transitioned = await self._load_order(self._connection, order_id)
         return transitioned

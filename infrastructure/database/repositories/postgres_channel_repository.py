@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from datetime import datetime
 from uuid import UUID, uuid4
@@ -12,7 +13,7 @@ from channels.models import (
     OutboundMessage,
     OutboundStatus,
 )
-from commerce.models import ChannelName
+from commerce.models import ChannelName, NotificationEvent
 from infrastructure.database import DatabasePool
 
 
@@ -279,6 +280,55 @@ class PostgresChannelRepository:
             conversation_id,
         )
 
+    async def notification_for_outbound(
+        self, outbound_id: UUID
+    ) -> NotificationEvent | None:
+        row = await self._pool.pool.fetchrow(
+            """SELECT event.* FROM notification_outbox event
+               JOIN notification_deliveries delivery ON delivery.notification_id=event.id
+               JOIN channel_outbound_messages outbound
+                 ON outbound.id=delivery.channel_outbound_message_id
+                AND outbound.tenant_id=event.tenant_id
+               WHERE outbound.id=$1""",
+            outbound_id,
+        )
+        if row is None:
+            return None
+        data = dict(row)
+        if isinstance(data["payload"], str):
+            data["payload"] = json.loads(data["payload"])
+        return NotificationEvent.model_validate(data)
+
+    async def upgrade_notification_to_template(
+        self,
+        outbound_id: UUID,
+        *,
+        content_sid: str,
+        content_variables: dict[str, str],
+        now: datetime,
+    ) -> OutboundMessage:
+        if not content_sid.startswith("HX") or not content_variables:
+            raise ValueError("Invalid approved template content.")
+        row = await self._pool.pool.fetchrow(
+            """UPDATE channel_outbound_messages outbound
+               SET content_mode='TEMPLATE',content_sid=$2,content_variables=$3::jsonb,
+                   updated_at=$4
+               WHERE outbound.id=$1 AND outbound.status='SENDING'
+                 AND outbound.source_inbound_id IS NULL
+                 AND EXISTS (
+                     SELECT 1 FROM notification_deliveries delivery
+                     WHERE delivery.channel_outbound_message_id=outbound.id
+                 )
+               RETURNING outbound.*""",
+            outbound_id,
+            content_sid,
+            json.dumps(content_variables),
+            now,
+        )
+        if row is None:
+            raise ValueError("Outbound notification cannot be upgraded.")
+        return self._outbound(row)
+
     async def ping(self) -> bool:
         return (await self._pool.pool.fetchval("SELECT 1")) == 1
 
@@ -326,4 +376,7 @@ class PostgresChannelRepository:
 
     @staticmethod
     def _outbound(row: asyncpg.Record) -> OutboundMessage:
-        return OutboundMessage.model_validate(dict(row))
+        data = dict(row)
+        if isinstance(data.get("content_variables"), str):
+            data["content_variables"] = json.loads(data["content_variables"])
+        return OutboundMessage.model_validate(data)

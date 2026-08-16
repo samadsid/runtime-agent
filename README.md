@@ -87,7 +87,21 @@ or forwarded headers.
 The Sandbox is test-only: users must join it, membership can expire, the shared
 sender is externally rate-limited, and free-form replies are restricted to the
 24-hour customer-service window. This milestone is text-only and does not
-download media or use unapproved templates. Operational endpoints are
+download media or use unapproved templates.
+
+Customer order notification processing is intentionally opt-in. Leave
+`CUSTOMER_NOTIFICATIONS_ENABLED=false` until approved Twilio Content Templates
+exist; order transactions still retain durable notification intents while the
+processor is disabled. To enable processing, set it to `true` and configure
+`TWILIO_NOTIFICATION_CONTENT_SIDS` as a JSON object. It must contain an `HX...`
+SID for each combination of `ORDER_CONFIRMED`, `ORDER_PREPARING`,
+`ORDER_OUT_FOR_DELIVERY`, `ORDER_DELIVERED`, and `ORDER_CANCELLED` with
+`en-IN`, `hi-IN`, and `hi-Latn-IN`, using keys such as
+`"ORDER_CONFIRMED:en-IN"`. Startup deliberately fails if the enabled mapping is
+incomplete, preventing notifications outside the service window from being
+sent incorrectly.
+
+Operational endpoints are
 `/health/live`, `/health/ready`, and `/metrics`.
 
 Channel bodies are sensitive. The operating retention policy is to redact

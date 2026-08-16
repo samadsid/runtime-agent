@@ -4,6 +4,8 @@ from app.api.rate_limit import FixedWindowRateLimiter
 from app.jobs import (
     ChannelInboundProcessor,
     ChannelOutboundDispatcher,
+    NotificationOutboxProcessor,
+    NotificationReconciliationJob,
     PaymentReconciliationJob,
 )
 from commerce.models import CommerceSession
@@ -15,6 +17,7 @@ from commerce.services import (
     DirectCartService,
     FulfilmentService,
     NonEmptyPhoneValidationPolicy,
+    NotificationTemplateRegistry,
     OrderService,
     PaymentEventService,
     PaymentService,
@@ -32,6 +35,7 @@ from infrastructure.database.repositories import (
     PostgresChatRequestRepository,
     PostgresFulfilmentUnitOfWork,
     PostgresInventoryRepository,
+    PostgresNotificationOutboxRepository,
     PostgresOrderRepository,
     PostgresPaymentRepository,
     PostgresProductRepository,
@@ -148,6 +152,8 @@ class ApplicationContainer:
         self.twilio_message_provider = None
         self.channel_inbound_processor = None
         self.channel_outbound_dispatcher = None
+        self.notification_outbox_processor = None
+        self.notification_reconciliation_job = None
         self.twilio_configured = False
 
         self._build_infrastructure()
@@ -171,15 +177,21 @@ class ApplicationContainer:
         """
         self.settings.validate_payment_configuration()
         self.settings.validate_twilio_configuration()
+        self.settings.validate_notification_configuration()
         self.settings.validate_web_chat_configuration()
         self._build_twilio()
         await self.database_pool.connect()
         try:
             await self.graph_checkpointer.start()
             self._build_runtime()
+            self._start_notification_worker()
             self._start_channel_workers()
             self.payment_reconciliation_job.start()
         except Exception:
+            if self.notification_outbox_processor is not None:
+                await self.notification_outbox_processor.stop()
+            if self.notification_reconciliation_job is not None:
+                await self.notification_reconciliation_job.stop()
             await self.graph_checkpointer.close()
             await self.database_pool.close()
             raise
@@ -192,6 +204,10 @@ class ApplicationContainer:
             await self.channel_inbound_processor.stop()
         if self.channel_outbound_dispatcher is not None:
             await self.channel_outbound_dispatcher.stop()
+        if self.notification_outbox_processor is not None:
+            await self.notification_outbox_processor.stop()
+        if self.notification_reconciliation_job is not None:
+            await self.notification_reconciliation_job.stop()
         await self.payment_reconciliation_job.stop()
         await self.graph_checkpointer.close()
         await self.database_pool.close()
@@ -205,6 +221,14 @@ class ApplicationContainer:
             config=self.settings.database,
         )
         self.channel_repository = PostgresChannelRepository(self.database_pool)
+        self.notification_repository = PostgresNotificationOutboxRepository(
+            self.database_pool
+        )
+        self.notification_templates = NotificationTemplateRegistry(
+            version=self.settings.NOTIFICATION_TEMPLATE_REGISTRY_VERSION,
+            default_locale=self.settings.NOTIFICATION_DEFAULT_LOCALE,
+            content_sids=self.settings.TWILIO_NOTIFICATION_CONTENT_SIDS,
+        )
         self.chat_request_repository = PostgresChatRequestRepository(self.database_pool)
 
     def _build_twilio(self) -> None:
@@ -573,7 +597,37 @@ class ApplicationContainer:
             provider=self.twilio_message_provider,
             status_callback_url=self.settings.twilio_status_url,
             window_hours=self.settings.TWILIO_WHATSAPP_CUSTOMER_SERVICE_WINDOW_HOURS,
+            notification_templates=self.notification_templates,
             **common,
         )
         self.channel_inbound_processor.start()
         self.channel_outbound_dispatcher.start()
+
+    def _start_notification_worker(self) -> None:
+        if not (
+            self.settings.CUSTOMER_NOTIFICATIONS_ENABLED
+            and self.settings.NOTIFICATION_PROCESSOR_ENABLED
+        ):
+            return
+        if self.settings.TWILIO_WHATSAPP_ENABLED:
+            self.notification_templates.validate_twilio_mappings()
+        self.notification_outbox_processor = NotificationOutboxProcessor(
+            repository=self.notification_repository,
+            channel_repository=self.channel_repository,
+            templates=self.notification_templates,
+            sender_id=self.settings.TWILIO_WHATSAPP_FROM,
+            batch_size=self.settings.NOTIFICATION_PROCESSOR_BATCH_SIZE,
+            lease_seconds=self.settings.NOTIFICATION_PROCESSOR_LEASE_SECONDS,
+            max_attempts=self.settings.NOTIFICATION_PROCESSOR_MAX_ATTEMPTS,
+            max_retry_delay_seconds=self.settings.NOTIFICATION_RETRY_MAX_DELAY_SECONDS,
+            interval_seconds=self.settings.NOTIFICATION_PROCESSOR_INTERVAL_SECONDS,
+            window_hours=self.settings.TWILIO_WHATSAPP_CUSTOMER_SERVICE_WINDOW_HOURS,
+            whatsapp_enabled=self.settings.TWILIO_WHATSAPP_ENABLED,
+        )
+        self.notification_outbox_processor.start()
+        self.notification_reconciliation_job = NotificationReconciliationJob(
+            repository=self.notification_repository,
+            batch_size=self.settings.NOTIFICATION_RECONCILIATION_BATCH_SIZE,
+            interval_seconds=self.settings.NOTIFICATION_RECONCILIATION_INTERVAL_SECONDS,
+        )
+        self.notification_reconciliation_job.start()

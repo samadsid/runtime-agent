@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import Mapping
 from uuid import UUID
 
 from channels.models import OutboundStatus, ProviderMessageResult
@@ -63,3 +65,40 @@ class TwilioWhatsAppMessageProvider:
         return ProviderMessageResult(
             provider_message_id=message.sid, status=OutboundStatus.ACCEPTED
         )
+
+    async def send_template(
+        self,
+        recipient_id: str,
+        content_sid: str,
+        content_variables: Mapping[str, str],
+        idempotency_key: UUID,
+        status_callback_url: str,
+    ) -> ProviderMessageResult:
+        del idempotency_key
+        if not content_sid.startswith("HX") or not content_variables:
+            raise TwilioPermanentSendError("invalid_content_template")
+        try:
+            message = await asyncio.to_thread(
+                self._client.messages.create,
+                from_=self._sender_id,
+                to=recipient_id,
+                content_sid=content_sid,
+                content_variables=json.dumps(
+                    dict(content_variables), ensure_ascii=False
+                ),
+                status_callback=status_callback_url,
+            )
+        except Exception as exc:
+            from requests import Timeout
+            from twilio.base.exceptions import TwilioRestException
+
+            if isinstance(exc, Timeout):
+                raise TwilioAmbiguousSendError("ambiguous_timeout") from exc
+            if isinstance(exc, TwilioRestException):
+                if exc.status >= 500 or exc.status == 429:
+                    raise TwilioRetryableSendError(f"twilio_http_{exc.status}") from exc
+                raise TwilioPermanentSendError(f"twilio_http_{exc.status}") from exc
+            raise TwilioRetryableSendError("provider_unavailable") from exc
+        if not message.sid:
+            raise TwilioAmbiguousSendError("missing_provider_sid")
+        return ProviderMessageResult(provider_message_id=message.sid)

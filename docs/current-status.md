@@ -169,6 +169,20 @@ LangChain Messages
 
 ---
 
+### Customer Order Notifications
+
+Completed
+
+- Atomic notification intent for confirmed, preparing, out-for-delivery, delivered,
+  and cancelled order transitions
+- Tenant-scoped notification outbox with leased processing, retries, suppression,
+  dead letters, and reconciliation
+- Reviewed English, Hindi, and Roman-script Hinglish templates without LLM use
+- Free-form WhatsApp delivery inside the service window and approved Twilio Content
+  Templates outside it
+- Separate notification and provider-delivery lifecycle records
+- Payment notification contracts are defined but production emission remains disabled
+
 ### Twilio WhatsApp Sandbox Channel
 
 Completed

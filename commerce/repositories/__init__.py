@@ -10,6 +10,7 @@ from .cart_repository import (
 from .fulfilment_unit_of_work import FulfilmentUnitOfWork
 from .in_memory_product_repository import InMemoryProductRepository
 from .inventory_repository import InventoryRepository, InventoryStateConflictError
+from .notification_outbox_repository import NotificationOutboxRepository
 from .order_repository import (
     CartNotAvailableForCheckoutError,
     CustomerCancellationNotAllowedError,
@@ -44,6 +45,7 @@ __all__ = [
     "InvalidOrderTransitionError",
     "InventoryRepository",
     "InventoryStateConflictError",
+    "NotificationOutboxRepository",
     "OrderConfirmationPersistenceError",
     "OrderNotFoundError",
     "OrderRepository",

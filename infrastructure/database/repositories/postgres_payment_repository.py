@@ -21,6 +21,9 @@ from commerce.models import (
 from commerce.repositories import PaymentRepository
 from infrastructure.database import DatabasePool
 
+from .postgres_notification_outbox_repository import (
+    PostgresNotificationOutboxRepository,
+)
 from .postgres_order_repository import PostgresOrderRepository
 
 
@@ -582,13 +585,17 @@ class PostgresPaymentRepository(PaymentRepository):
         await connection.execute(
             "UPDATE orders SET status=$2 WHERE id=$1", order_id, target.value
         )
+        history_id = uuid4()
         await connection.execute(
             "INSERT INTO order_status_history (id,order_id,from_status,to_status,actor_id,actor_type,reason,created_at) VALUES ($1,$2,$3,$4,NULL,'SYSTEM',$5,now())",
-            uuid4(),
+            history_id,
             order_id,
             current,
             target.value,
             reason,
+        )
+        await PostgresNotificationOutboxRepository.append_order_transition(
+            connection, order_id, history_id
         )
 
     async def _finish_event(self, connection, event_id, status, reason):

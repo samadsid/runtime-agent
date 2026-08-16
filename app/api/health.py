@@ -46,7 +46,31 @@ async def ready(request: Request) -> Response:
                 container.channel_outbound_dispatcher,
             )
         )
-    healthy = database and twilio and workers
+    notification_worker = True
+    if (
+        container.settings.CUSTOMER_NOTIFICATIONS_ENABLED
+        and container.settings.NOTIFICATION_PROCESSOR_ENABLED
+    ):
+        notification_workers = (
+            (
+                container.notification_outbox_processor,
+                container.settings.NOTIFICATION_PROCESSOR_INTERVAL_SECONDS,
+            ),
+            (
+                container.notification_reconciliation_job,
+                container.settings.NOTIFICATION_RECONCILIATION_INTERVAL_SECONDS,
+            ),
+        )
+        now = datetime.now(timezone.utc)
+        notification_worker = all(
+            worker is not None
+            and worker.running
+            and worker.last_success_at is not None
+            and now - worker.last_success_at
+            <= timedelta(seconds=max(10.0, 3 * interval))
+            for worker, interval in notification_workers
+        )
+    healthy = database and twilio and workers and notification_worker
     return JSONResponse(
         status_code=200 if healthy else 503,
         content={
@@ -55,6 +79,7 @@ async def ready(request: Request) -> Response:
                 "database": database,
                 "workers": workers,
                 "twilio_config": twilio,
+                "notification_worker": notification_worker,
             },
         },
     )

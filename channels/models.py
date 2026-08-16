@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-from commerce.models import ChannelName
+from commerce.models import ChannelName, NotificationContentMode
 
 
 class MessageKind(str, Enum):
@@ -74,10 +75,13 @@ class OutboundMessage(BaseModel):
     tenant_id: UUID
     channel: ChannelName
     conversation_id: UUID
-    source_inbound_id: UUID
+    source_inbound_id: UUID | None = None
     recipient_id: str
     sender_id: str
-    body: str
+    body: str | None = None
+    content_mode: NotificationContentMode = NotificationContentMode.TEXT
+    content_sid: str | None = None
+    content_variables: dict[str, Any] | None = None
     status: OutboundStatus
     attempt_count: int
     next_attempt_at: datetime

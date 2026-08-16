@@ -235,9 +235,14 @@ async def test_postgres_order_confirmation_is_idempotent_and_snapshots_cart() ->
             "SELECT COUNT(*) FROM order_status_history WHERE order_id = $1",
             first.order.id,
         )
+        notification_count = await pool.fetchval(
+            "SELECT COUNT(*) FROM notification_outbox WHERE order_id = $1",
+            first.order.id,
+        )
         assert balance["reserved_quantity"] == Decimal(2)
         assert reservation_count == 1
         assert history_count == 1
+        assert notification_count == 1
         assert latest is not None
         assert latest.items[0].product_name == "Snapshot Chicken"
         assert latest.items[0].unit_price == Decimal(320)
@@ -267,6 +272,13 @@ async def test_postgres_order_confirmation_is_idempotent_and_snapshots_cart() ->
         assert (
             await pool.fetchval(
                 "SELECT COUNT(*) FROM order_status_history WHERE order_id = $1",
+                first.order.id,
+            )
+            == 2
+        )
+        assert (
+            await pool.fetchval(
+                "SELECT COUNT(*) FROM notification_outbox WHERE order_id = $1",
                 first.order.id,
             )
             == 2

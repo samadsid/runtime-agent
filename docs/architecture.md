@@ -273,6 +273,13 @@ serialize one graph thread while permitting different conversations to run in
 parallel. Outbound delivery and monotonic callbacks are independent of agent
 execution, so provider retries never regenerate a response.
 
+Authoritative order transitions also append a tenant-scoped notification intent
+in the same PostgreSQL transaction as status history and inventory effects. A
+separate deterministic processor renders reviewed, versioned templates into the
+channel outbox; the existing dispatcher owns provider calls and delivery callbacks.
+This two-outbox pipeline never enters LangGraph, invokes an LLM, or changes order
+state from a worker or callback.
+
 The customer web frontend is another outer channel adapter. It retains only a
 local presentation transcript and the backend-issued conversation UUID, then
 submits text through the existing REST runtime boundary. PostgreSQL request

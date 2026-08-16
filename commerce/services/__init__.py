@@ -14,6 +14,10 @@ from .direct_cart_service import (
     UnitPolicy,
 )
 from .fulfilment_service import FulfilmentService
+from .notification_templates import (
+    NotificationTemplateError,
+    NotificationTemplateRegistry,
+)
 from .order_service import OrderService
 from .payment_event_service import PaymentEventService
 from .payment_service import PaymentService
@@ -39,6 +43,8 @@ __all__ = [
     "GuestSavedDeliveryDetailsError",
     "InvalidSavedDeliveryDetailsError",
     "NonEmptyPhoneValidationPolicy",
+    "NotificationTemplateError",
+    "NotificationTemplateRegistry",
     "OrderService",
     "PaymentEventService",
     "PaymentService",

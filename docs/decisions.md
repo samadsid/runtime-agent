@@ -516,3 +516,22 @@ only the latest displayed page for isolated ordinal resolution. Follow-up
 navigation and selection reload tenant-scoped data, and successful product
 selection clears browse state. This adds capabilities without changing the
 frozen graph or coupling capabilities to one another.
+
+---
+
+## ADR-031
+
+Use a transactional notification outbox and deterministic proactive templates.
+
+Status
+
+Accepted
+
+Reason
+
+Every customer-visible order transition must commit its notification intent with
+the authoritative status and history row, while provider availability must remain
+outside commerce transactions. A notification outbox owns business intent and a
+separate channel outbox owns provider delivery. Reviewed versioned templates replace
+LLM generation for proactive messages; leased workers, idempotent delivery links,
+and reconciliation make retries harmless without changing the frozen graph.

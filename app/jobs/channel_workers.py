@@ -8,7 +8,8 @@ from datetime import datetime, timedelta, timezone
 from app.observability import INBOX_LATENCY, OUTBOUND, RETRIES, WORKER_HEALTH
 from channels.models import InboundMessage, MessageKind, OutboundMessage, OutboundStatus
 from channels.providers import OutboundMessageProvider
-from commerce.models import ChannelName
+from commerce.models import ChannelName, NotificationContentMode
+from commerce.services import NotificationTemplateError, NotificationTemplateRegistry
 from infrastructure.channels.twilio import (
     TwilioAmbiguousSendError,
     TwilioPermanentSendError,
@@ -155,6 +156,7 @@ class ChannelOutboundDispatcher(PeriodicChannelWorker):
         max_attempts: int,
         interval_seconds: float,
         window_hours: int,
+        notification_templates: NotificationTemplateRegistry | None = None,
     ) -> None:
         super().__init__(interval_seconds, "outbound")
         self._repository = repository
@@ -164,6 +166,7 @@ class ChannelOutboundDispatcher(PeriodicChannelWorker):
         self._lease_seconds = lease_seconds
         self._max_attempts = max_attempts
         self._window = timedelta(hours=window_hours)
+        self._notification_templates = notification_templates
 
     async def run_once(self) -> None:
         now = datetime.now(timezone.utc)
@@ -177,22 +180,60 @@ class ChannelOutboundDispatcher(PeriodicChannelWorker):
         last_inbound = await self._repository.conversation_last_inbound(
             outbound.conversation_id
         )
-        if last_inbound is None or now - last_inbound > self._window:
-            await self._repository.fail_outbound(
-                outbound.id,
-                OutboundStatus.TEMPLATE_REQUIRED,
-                "customer_service_window_closed",
-                now,
-            )
-            OUTBOUND.labels(CHANNEL, "template_required").inc()
-            return
         try:
-            result = await self._provider.send_text(
-                outbound.recipient_id,
-                outbound.body,
-                outbound.id,
-                self._status_callback_url,
-            )
+            outside_window = last_inbound is None or now - last_inbound > self._window
+            if outside_window and outbound.content_mode == NotificationContentMode.TEXT:
+                if (
+                    outbound.source_inbound_id is not None
+                    or self._notification_templates is None
+                ):
+                    await self._repository.fail_outbound(
+                        outbound.id,
+                        OutboundStatus.TEMPLATE_REQUIRED,
+                        "customer_service_window_closed",
+                        now,
+                    )
+                    OUTBOUND.labels(CHANNEL, "template_required").inc()
+                    return
+                event = await self._repository.notification_for_outbound(outbound.id)
+                if event is None:
+                    raise TwilioPermanentSendError("missing_notification_delivery")
+                template, _ = self._notification_templates.get(
+                    event.notification_type, event.locale
+                )
+                _, variables = self._notification_templates.render(
+                    template, event.order_payload()
+                )
+                if template.provider_content_sid is None:
+                    raise TwilioPermanentSendError("missing_content_template")
+                outbound = await self._repository.upgrade_notification_to_template(
+                    outbound.id,
+                    content_sid=template.provider_content_sid,
+                    content_variables=variables,
+                    now=now,
+                )
+            if outbound.content_mode == NotificationContentMode.TEMPLATE:
+                if outbound.content_sid is None or outbound.content_variables is None:
+                    raise TwilioPermanentSendError("incomplete_content_template")
+                result = await self._provider.send_template(
+                    outbound.recipient_id,
+                    outbound.content_sid,
+                    {
+                        str(key): str(value)
+                        for key, value in outbound.content_variables.items()
+                    },
+                    outbound.id,
+                    self._status_callback_url,
+                )
+            else:
+                if outbound.body is None:
+                    raise TwilioPermanentSendError("missing_text_body")
+                result = await self._provider.send_text(
+                    outbound.recipient_id,
+                    outbound.body,
+                    outbound.id,
+                    self._status_callback_url,
+                )
             await self._repository.accept_outbound(
                 outbound.id, result.provider_message_id, now
             )
@@ -202,7 +243,7 @@ class ChannelOutboundDispatcher(PeriodicChannelWorker):
                 outbound.id, OutboundStatus.AMBIGUOUS, "ambiguous_send", now
             )
             OUTBOUND.labels(CHANNEL, "ambiguous").inc()
-        except TwilioPermanentSendError:
+        except (TwilioPermanentSendError, NotificationTemplateError, ValueError):
             await self._repository.fail_outbound(
                 outbound.id, OutboundStatus.FAILED, "permanent_provider_error", now
             )

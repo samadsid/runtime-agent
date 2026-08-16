@@ -64,6 +64,22 @@ class Settings(BaseSettings):
     TWILIO_WHATSAPP_MAX_INBOUND_BODY_BYTES: int = Field(default=4096, ge=1)
     TWILIO_WHATSAPP_MAX_OUTBOUND_BODY_CHARS: int = Field(default=1600, ge=1)
     TWILIO_WHATSAPP_CUSTOMER_SERVICE_WINDOW_HOURS: int = Field(default=24, ge=1)
+    # Delivery is opt-in because approved provider template identifiers are
+    # deployment-owned and cannot have safe application defaults. Business
+    # transactions still append durable notification intents while this is off.
+    CUSTOMER_NOTIFICATIONS_ENABLED: bool = False
+    NOTIFICATION_PROCESSOR_ENABLED: bool = True
+    NOTIFICATION_PROCESSOR_INTERVAL_SECONDS: float = Field(default=1, gt=0)
+    NOTIFICATION_PROCESSOR_BATCH_SIZE: int = Field(default=20, ge=1, le=500)
+    NOTIFICATION_PROCESSOR_LEASE_SECONDS: int = Field(default=120, ge=10)
+    NOTIFICATION_PROCESSOR_MAX_ATTEMPTS: int = Field(default=5, ge=1, le=20)
+    NOTIFICATION_RETRY_MAX_DELAY_SECONDS: int = Field(default=300, ge=1)
+    NOTIFICATION_RECONCILIATION_INTERVAL_SECONDS: int = Field(default=60, ge=1)
+    NOTIFICATION_RECONCILIATION_BATCH_SIZE: int = Field(default=100, ge=1, le=1000)
+    NOTIFICATION_DEFAULT_LOCALE: str = "en-IN"
+    NOTIFICATION_TEMPLATE_REGISTRY_VERSION: int = Field(default=1, ge=1)
+    TWILIO_NOTIFICATION_CONTENT_SIDS: dict[str, str] = {}
+    PAYMENT_NOTIFICATIONS_ENABLED: bool = False
 
     def validate_payment_configuration(self) -> None:
         if self.APP_ENV == "production" and self.PAYMENT_PROVIDER == "fake":
@@ -92,6 +108,16 @@ class Settings(BaseSettings):
             raise RuntimeError("The Twilio inbound webhook path is fixed.")
         if self.TWILIO_WHATSAPP_STATUS_PATH != "/webhooks/twilio/whatsapp/status":
             raise RuntimeError("The Twilio status webhook path is fixed.")
+
+    def validate_notification_configuration(self) -> None:
+        if self.PAYMENT_NOTIFICATIONS_ENABLED:
+            raise RuntimeError(
+                "Payment notifications require a production payment provider."
+            )
+        if not self.CUSTOMER_NOTIFICATIONS_ENABLED:
+            return
+        if not self.NOTIFICATION_DEFAULT_LOCALE.strip():
+            raise RuntimeError("A notification default locale is required.")
 
     def validate_web_chat_configuration(self) -> None:
         if not self.WEB_CHAT_ALLOWED_ORIGINS:
