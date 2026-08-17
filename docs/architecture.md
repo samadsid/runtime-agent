@@ -50,6 +50,25 @@ Staff mutations use optimistic order versions and transactionally persist the
 order update, inventory effect, status history, notification intent, and API
 idempotency result.
 
+The React Native staff client has a presentation-only design-system boundary:
+
+```
+Expo Router routes
+       ↓
+responsive screen compositions
+       ↓
+public typed design-system components
+       ↓
+semantic light/dark tokens + React Native primitives
+```
+
+Feature screens do not select raw palette values or import icon libraries directly.
+Live window width selects compact, medium, or expanded composition; it does not alter
+API/query ownership or business state. Compact navigation uses bottom tabs and wider
+layouts use the same role-filtered routes through a navigation rail. Domain values
+such as order status, product lifecycle, and stock risk pass through typed
+presentation adapters that return semantic treatments rather than colors.
+
 Catalog and inventory administration follow the same deterministic staff path.
 ADMIN-only services own validation and invariants; PostgreSQL repositories own
 tenant-scoped locking, independent product/inventory versions, idempotency, catalog

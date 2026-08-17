@@ -2,6 +2,28 @@
 
 ## Completed
 
+### React Native Staff Design System and Responsive UI
+
+- Typed MeatUncle semantic light/dark themes following system appearance
+- Semantic typography, spacing, radii, elevation, motion, and responsive breakpoint
+  tokens with compact, medium, and expanded layout utilities
+- Shared accessible text, icon, button, field, card, badge, chip, metric, feedback,
+  loading, confirmation, and responsive composition components
+- Compact bottom navigation and medium/expanded role-filtered navigation rail
+- Responsive redesign of session restoration, login, account, dashboard, orders,
+  catalog/product administration, and inventory/movement workflows
+- Centralized order, product-lifecycle, and stock-state presentation adapters
+- Virtualized order, catalog, and inventory-movement lists plus standardized initial,
+  refresh, empty, filtered-empty, error, offline, stale, disabled, and mutation states
+- Development-only synthetic component gallery and static UI boundary audit
+- Rotation/tablet configuration, Expo font/asset integration, responsive boundary
+  tests, accessibility component assertions, typecheck, and Expo Doctor verification
+
+The redesign does not change staff API contracts, backend authorization, commerce
+rules, optimistic versions, or mutation idempotency. Theme and responsive state are
+presentation-only; query cache and form/business state remain with their existing
+owners.
+
 ### Catalog and Inventory Administration
 
 - ADMIN-only tenant-scoped product creation, editing, activation, and deactivation

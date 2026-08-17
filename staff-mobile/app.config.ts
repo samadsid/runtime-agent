@@ -30,11 +30,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     slug: "commerce-staff-mobile",
     scheme: "commerce-staff",
     version: "0.1.0",
-    orientation: "portrait",
+    orientation: "default",
     userInterfaceStyle: "automatic",
     plugins: [
       "expo-router",
       "expo-secure-store",
+      "expo-font",
+      "expo-asset",
       ["expo-build-properties", {
         android: { minSdkVersion: 24, usesCleartextTraffic: environment === "development" },
       }],
@@ -43,6 +45,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     android: {
       package: profile.android,
     },
-    ios: { bundleIdentifier: profile.ios, supportsTablet: false },
+    ios: { bundleIdentifier: profile.ios, supportsTablet: true },
   };
 };

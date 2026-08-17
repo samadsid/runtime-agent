@@ -1,5 +1,28 @@
 # Architecture Decisions
 
+## ADR-019
+
+Use one typed semantic React Native design system for the staff application.
+
+Status
+
+Accepted
+
+Reason
+
+The staff application must support system light/dark appearance, compact through
+expanded layouts, large fonts, and accessible operational states without duplicating
+raw presentation values across feature routes. React Native `StyleSheet` styles,
+semantic theme tokens, live `useWindowDimensions()` tiers, safe-area primitives, and
+one internal icon wrapper keep presentation portable and separate from staff API and
+commerce business behavior. Expo Router route identity, TanStack Query ownership,
+authorization, optimistic versions, and idempotency remain outside the theme layer.
+
+NativeWind, browser CSS, large component frameworks, and separate phone/tablet route
+trees are excluded.
+
+---
+
 ## ADR-017
 
 Use `ProductStatus` as the single mutable catalog lifecycle value and expose legacy
