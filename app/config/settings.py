@@ -93,6 +93,10 @@ class Settings(BaseSettings):
     STAFF_LOGIN_RATE_LIMIT: int = Field(default=5, ge=1)
     STAFF_API_RATE_LIMIT: int = Field(default=120, ge=1)
     STAFF_IDEMPOTENCY_RETENTION_HOURS: int = Field(default=24, ge=1)
+    CATALOG_SUPPORTED_CURRENCIES: list[str] = ["INR"]
+    CATALOG_SUPPORTED_UNITS: list[str] = ["kg", "piece"]
+    INVENTORY_RECONCILIATION_INTERVAL_SECONDS: int = Field(default=300, ge=10)
+    INVENTORY_RECONCILIATION_BATCH_SIZE: int = Field(default=100, ge=1, le=1000)
 
     def validate_payment_configuration(self) -> None:
         if self.APP_ENV == "production" and self.PAYMENT_PROVIDER == "fake":

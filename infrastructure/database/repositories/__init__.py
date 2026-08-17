@@ -1,4 +1,5 @@
 from .postgres_cart_repository import PostgresCartRepository
+from .postgres_catalog_admin_repository import PostgresCatalogAdminRepository
 from .postgres_channel_repository import PostgresChannelRepository
 from .postgres_chat_request_repository import PostgresChatRequestRepository
 from .postgres_fulfilment_unit_of_work import PostgresFulfilmentUnitOfWork
@@ -21,6 +22,7 @@ from .postgres_staff_repository import (
 
 __all__ = [
     "PostgresCartRepository",
+    "PostgresCatalogAdminRepository",
     "PostgresChannelRepository",
     "PostgresChatRequestRepository",
     "PostgresFixedWindowRateLimiter",

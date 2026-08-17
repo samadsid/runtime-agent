@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.staff_routes import StaffAPIError, router
 from commerce.models import (
+    CatalogOptions,
     StaffAccount,
     StaffDashboardCounts,
     StaffDashboardSummary,
@@ -40,14 +41,14 @@ class Limiter:
         return True
 
 
-def application() -> tuple[FastAPI, StaffAccount]:
+def application(role: StaffRole = StaffRole.ADMIN) -> tuple[FastAPI, StaffAccount]:
     now = datetime.now(timezone.utc)
     account = StaffAccount(
         id=uuid4(), email="staff@example.com", display_name="Staff",
         status=StaffStatus.ACTIVE, created_at=now, updated_at=now,
     )
     membership = StaffTenantMembership(
-        staff_id=account.id, tenant_id=uuid4(), role=StaffRole.ADMIN,
+        staff_id=account.id, tenant_id=uuid4(), role=role,
         active=True, created_at=now, updated_at=now,
     )
 
@@ -79,6 +80,11 @@ def application() -> tuple[FastAPI, StaffAccount]:
                 )
             )
 
+    class Catalog:
+        async def options(self, context):
+            assert context.tenant_id == membership.tenant_id
+            return CatalogOptions(categories=(), currencies=("INR",), units=("kg", "piece"))
+
     container = SimpleNamespace(
         settings=SimpleNamespace(
             STAFF_AUTH_ENABLED=True,
@@ -91,6 +97,7 @@ def application() -> tuple[FastAPI, StaffAccount]:
         staff_authentication_service=Authentication(),
         staff_repository=Repository(),
         staff_order_query_service=Orders(),
+        staff_catalog_service=Catalog(),
     )
     app = FastAPI()
     app.state.application_container = container
@@ -158,3 +165,33 @@ async def test_dashboard_summary_is_scoped_to_active_context() -> None:
         "counts": {"confirmed": 3, "preparing": 2, "out_for_delivery": 1},
         "oldest_confirmed_orders": [],
     }
+
+
+@pytest.mark.asyncio
+async def test_admin_can_load_typed_catalog_options() -> None:
+    app, account = application()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as http:
+        response = await http.get(
+            "/api/staff/v1/catalog/options",
+            headers={"Authorization": f"Bearer token:{account.id}"},
+        )
+    assert response.status_code == 200
+    assert response.json() == {
+        "categories": [], "currencies": ["INR"], "units": ["kg", "piece"]
+    }
+
+
+@pytest.mark.asyncio
+async def test_fulfilment_staff_cannot_access_catalog_options() -> None:
+    app, account = application(StaffRole.FULFILMENT_STAFF)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as http:
+        response = await http.get(
+            "/api/staff/v1/catalog/options",
+            headers={"Authorization": f"Bearer token:{account.id}"},
+        )
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "staff_access_denied"

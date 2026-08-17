@@ -1,5 +1,36 @@
 # Architecture Decisions
 
+## ADR-017
+
+Use `ProductStatus` as the single mutable catalog lifecycle value and expose legacy
+`available` only as a derived domain property.
+
+Status
+
+Accepted
+
+Reason
+
+Catalog administration requires an explicit lifecycle without two independently
+mutable availability fields.
+
+---
+
+## ADR-018
+
+Record every physical and reservation inventory effect in one append-only ledger.
+
+Status
+
+Accepted
+
+Reason
+
+Balance changes and movements must share the existing transaction so stock remains
+reconcilable without a competing reservation implementation.
+
+---
+
 ## ADR-001
 
 Use LangGraph as the orchestration engine.

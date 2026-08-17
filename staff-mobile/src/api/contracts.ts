@@ -108,3 +108,53 @@ export type DashboardSummary = z.infer<typeof dashboardSummarySchema>;
 export const apiErrorSchema = z.object({
   error: z.object({ code: z.string(), message: z.string(), request_id: z.string() }),
 });
+
+export const productStatusSchema = z.enum(["ACTIVE", "INACTIVE"]);
+export const stockStateSchema = z.enum(["LOW", "OUT", "AVAILABLE"]);
+export const movementTypeSchema = z.enum([
+  "OPENING_BALANCE", "RECEIPT", "POSITIVE_CORRECTION", "NEGATIVE_CORRECTION",
+  "DAMAGE", "WASTAGE", "RESERVATION", "RELEASE", "CONSUMPTION",
+]);
+export const manualMovementTypeSchema = z.enum([
+  "RECEIPT", "POSITIVE_CORRECTION", "NEGATIVE_CORRECTION", "DAMAGE", "WASTAGE",
+]);
+
+export const adminProductSchema = z.object({
+  id: uuidSchema, tenant_id: uuidSchema, sku: z.string(), name: z.string(),
+  category_id: uuidSchema.nullable(), category_name: z.string().nullable(),
+  price: decimalSchema, currency: z.string(), unit: z.string(), status: productStatusSchema,
+  low_stock_threshold: decimalSchema.nullable(), display_order: z.number().int().nonnegative(),
+  version: z.number().int().positive(), created_at: dateSchema, updated_at: dateSchema,
+});
+export const productWithInventorySchema = z.object({
+  product: adminProductSchema, on_hand_quantity: decimalSchema,
+  reserved_quantity: decimalSchema, sellable_quantity: decimalSchema,
+  inventory_version: z.number().int().positive(), inventory_updated_at: dateSchema,
+  stock_states: z.array(stockStateSchema), permitted_actions: z.array(z.string()),
+});
+export type ProductWithInventory = z.infer<typeof productWithInventorySchema>;
+export const adminProductPageSchema = z.object({
+  items: z.array(productWithInventorySchema), next_cursor: z.string().nullable(),
+});
+export const catalogOptionsSchema = z.object({
+  categories: z.array(z.object({ id: uuidSchema, name: z.string() })),
+  currencies: z.array(z.string()), units: z.array(z.string()),
+});
+export type CatalogOptions = z.infer<typeof catalogOptionsSchema>;
+export const movementSchema = z.object({
+  id: uuidSchema, tenant_id: uuidSchema, product_id: uuidSchema,
+  movement_type: movementTypeSchema, quantity: decimalSchema,
+  on_hand_delta: decimalSchema, reserved_delta: decimalSchema,
+  on_hand_before: decimalSchema, on_hand_after: decimalSchema,
+  reserved_before: decimalSchema, reserved_after: decimalSchema,
+  reference_type: z.string().nullable(), reference_id: uuidSchema.nullable(),
+  reason: z.string(), actor_type: z.string(), actor_id: uuidSchema.nullable(), created_at: dateSchema,
+});
+export const movementPageSchema = z.object({ items: z.array(movementSchema), next_cursor: z.string().nullable() });
+export const adjustmentResultSchema = z.object({ balance: productWithInventorySchema, movement: movementSchema, idempotent: z.boolean() });
+export const inventorySummarySchema = z.object({
+  active_products: z.number().int().nonnegative(), low_stock_products: z.number().int().nonnegative(),
+  out_of_stock_products: z.number().int().nonnegative(), inactive_products: z.number().int().nonnegative(),
+  oldest_low_stock_products: z.array(productWithInventorySchema),
+});
+export type InventorySummary = z.infer<typeof inventorySummarySchema>;

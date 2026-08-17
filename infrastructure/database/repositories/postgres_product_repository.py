@@ -39,13 +39,13 @@ class PostgresProductRepository(ProductRepository):
             products.price,
             products.currency,
             products.unit,
-            products.available,
+            products.status,
             balance.on_hand_quantity - balance.reserved_quantity AS sellable_quantity,
             products.created_at,
             products.updated_at
         FROM products
         JOIN inventory_balances AS balance ON balance.product_id = products.id
-        WHERE products.available = TRUE
+        WHERE products.status = 'ACTIVE'
           AND products.active = TRUE
           AND products.customer_visible = TRUE
           AND products.tenant_id = $2
@@ -69,7 +69,7 @@ class PostgresProductRepository(ProductRepository):
     ) -> Product | None:
         row = await self._pool.pool.fetchrow(
             """
-            SELECT id, name, price, currency, unit, available
+            SELECT id, name, price, currency, unit, status
             FROM products
             WHERE tenant_id = $1 AND id = $2
               AND active = TRUE AND customer_visible = TRUE
@@ -82,7 +82,7 @@ class PostgresProductRepository(ProductRepository):
     async def search_candidates(self, tenant_id: UUID, query: str) -> list[Product]:
         rows = await self._pool.pool.fetch(
             """
-            SELECT id, name, price, currency, unit, available
+            SELECT id, name, price, currency, unit, status
             FROM products
             WHERE tenant_id = $1 AND name ILIKE $2
               AND active = TRUE AND customer_visible = TRUE
@@ -108,7 +108,7 @@ class PostgresProductRepository(ProductRepository):
             WHERE product.tenant_id = $1
               AND product.active = TRUE
               AND product.customer_visible = TRUE
-              AND product.available = TRUE
+              AND product.status = 'ACTIVE'
               AND balance.on_hand_quantity - balance.reserved_quantity > 0
             """,
             tenant_id,
@@ -130,7 +130,7 @@ class PostgresProductRepository(ProductRepository):
                   AND product.category_id = category.id
                   AND product.active = TRUE
                   AND product.customer_visible = TRUE
-                  AND product.available = TRUE
+                  AND product.status = 'ACTIVE'
                   AND balance.on_hand_quantity - balance.reserved_quantity > 0
               )
             ORDER BY category.display_order, lower(category.name), category.id
@@ -198,7 +198,7 @@ class PostgresProductRepository(ProductRepository):
         rows = await self._pool.pool.fetch(
             """
             SELECT product.id, product.name, product.price, product.currency,
-                   product.unit, product.available
+                   product.unit, product.status
             FROM products AS product
             JOIN inventory_balances AS balance ON balance.product_id = product.id
             LEFT JOIN product_categories AS category
@@ -208,7 +208,7 @@ class PostgresProductRepository(ProductRepository):
               AND ($2::uuid IS NULL OR category.active = TRUE)
               AND product.active = TRUE
               AND product.customer_visible = TRUE
-              AND product.available = TRUE
+              AND product.status = 'ACTIVE'
               AND balance.on_hand_quantity - balance.reserved_quantity > 0
             ORDER BY coalesce(category.display_order, 0), product.display_order,
                      lower(product.name), product.id
@@ -226,7 +226,7 @@ class PostgresProductRepository(ProductRepository):
                 price=row["price"],
                 currency=row["currency"],
                 unit=row["unit"],
-                available=row["available"],
+                available=row["status"] == "ACTIVE",
             )
             for row in rows[:page_size]
         )
@@ -244,14 +244,14 @@ class PostgresProductRepository(ProductRepository):
         row = await self._pool.pool.fetchrow(
             """
             SELECT product.id, product.name, product.price, product.currency,
-                   product.unit, product.available
+                   product.unit, product.status
             FROM products AS product
             JOIN inventory_balances AS balance ON balance.product_id = product.id
             LEFT JOIN product_categories AS category
               ON category.tenant_id = product.tenant_id AND category.id = product.category_id
             WHERE product.tenant_id = $1 AND product.id = $2
               AND product.active = TRUE AND product.customer_visible = TRUE
-              AND product.available = TRUE
+              AND product.status = 'ACTIVE'
               AND (product.category_id IS NULL OR category.active = TRUE)
               AND balance.on_hand_quantity - balance.reserved_quantity > 0
             """,
@@ -271,5 +271,5 @@ class PostgresProductRepository(ProductRepository):
             price=row["price"],
             currency=row["currency"],
             unit=row["unit"],
-            available=row["available"],
+            status=row["status"],
         )

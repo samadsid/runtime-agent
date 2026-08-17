@@ -4,6 +4,7 @@ from app.api.rate_limit import FixedWindowRateLimiter
 from app.jobs import (
     ChannelInboundProcessor,
     ChannelOutboundDispatcher,
+    InventoryReconciliationJob,
     NotificationOutboxProcessor,
     NotificationReconciliationJob,
     PaymentReconciliationJob,
@@ -31,6 +32,7 @@ from infrastructure.channels.twilio import (
 from infrastructure.database import DatabasePool
 from infrastructure.database.repositories import (
     PostgresCartRepository,
+    PostgresCatalogAdminRepository,
     PostgresChannelRepository,
     PostgresChatRequestRepository,
     PostgresFixedWindowRateLimiter,
@@ -141,6 +143,7 @@ from runtime.prompts.renderers import (
 )
 from runtime.responses import ResponseGenerator
 from services.staff_auth import StaffAuthenticationService
+from services.staff_catalog import StaffCatalogService
 from services.staff_fulfilment import StaffFulfilmentService
 from services.staff_orders import StaffOrderQueryService
 
@@ -199,6 +202,7 @@ class ApplicationContainer:
             self._start_notification_worker()
             self._start_channel_workers()
             self.payment_reconciliation_job.start()
+            self.inventory_reconciliation_job.start()
         except Exception:
             if self.notification_outbox_processor is not None:
                 await self.notification_outbox_processor.stop()
@@ -221,6 +225,7 @@ class ApplicationContainer:
         if self.notification_reconciliation_job is not None:
             await self.notification_reconciliation_job.stop()
         await self.payment_reconciliation_job.stop()
+        await self.inventory_reconciliation_job.stop()
         await self.graph_checkpointer.close()
         await self.database_pool.close()
 
@@ -244,6 +249,14 @@ class ApplicationContainer:
         self.chat_request_repository = PostgresChatRequestRepository(self.database_pool)
         self.staff_repository = PostgresStaffRepository(self.database_pool)
         self.staff_order_repository = PostgresStaffOrderRepository(self.database_pool)
+        self.staff_catalog_repository = PostgresCatalogAdminRepository(
+            self.database_pool, self.settings.STAFF_IDEMPOTENCY_RETENTION_HOURS
+        )
+        self.inventory_reconciliation_job = InventoryReconciliationJob(
+            self.staff_catalog_repository,
+            self.settings.INVENTORY_RECONCILIATION_BATCH_SIZE,
+            self.settings.INVENTORY_RECONCILIATION_INTERVAL_SECONDS,
+        )
         self.staff_rate_limiter = (
             FixedWindowRateLimiter()
             if self.settings.APP_ENV in {"development", "test"}
@@ -276,6 +289,11 @@ class ApplicationContainer:
             )
             self.staff_order_query_service = StaffOrderQueryService(
                 self.staff_order_repository
+            )
+            self.staff_catalog_service = StaffCatalogService(
+                self.staff_catalog_repository,
+                tuple(value.upper() for value in self.settings.CATALOG_SUPPORTED_CURRENCIES),
+                tuple(self.settings.CATALOG_SUPPORTED_UNITS),
             )
 
     def _build_twilio(self) -> None:

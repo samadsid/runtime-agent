@@ -2,6 +2,19 @@
 
 ## Completed
 
+### Catalog and Inventory Administration
+
+- ADMIN-only tenant-scoped product creation, editing, activation, and deactivation
+- Independent optimistic product and inventory versions with staff idempotency
+- Atomic physical-stock adjustments and immutable inventory movements
+- Order reservation, release, and consumption ledger integration
+- Low/out-of-stock queries and summaries plus detection-only reconciliation
+- Role-aware React Native Catalog and Inventory workflows
+
+The deterministic staff path remains separate from the customer graph. Product status
+is the canonical lifecycle value; customer availability is derived from active status,
+visibility policy, and positive sellable inventory.
+
 ### Runtime
 
 - FastAPI

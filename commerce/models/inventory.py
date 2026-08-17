@@ -18,9 +18,11 @@ class InventoryBalance(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     product_id: UUID
+    tenant_id: UUID | None = None
     on_hand_quantity: Decimal = Field(ge=0, allow_inf_nan=False)
     reserved_quantity: Decimal = Field(ge=0, allow_inf_nan=False)
     updated_at: datetime
+    version: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def validate_reserved_quantity(self) -> InventoryBalance:

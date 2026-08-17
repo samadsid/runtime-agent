@@ -11,33 +11,54 @@ from fastapi import APIRouter, Depends, Header, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.api.staff_models import (
+    CreateProductRequest,
+    InventoryAdjustmentRequest,
+    ProductStatusRequest,
     StaffLoginRequest,
     StaffLoginResponse,
     StaffMembershipResponse,
     StaffMeResponse,
     StaffTransitionRequest,
     StaffTransitionResponse,
+    UpdateProductRequest,
 )
 from app.observability.staff_metrics import (
     STAFF_AUTHORIZATION_DENIALS,
     STAFF_LOGIN_ATTEMPTS,
 )
 from commerce.models import (
+    AdminProductPage,
+    CatalogOptions,
+    InventoryAdjustmentResult,
+    InventoryMovementPage,
+    InventoryMovementType,
+    InventorySummary,
+    ManualInventoryMovementType,
     OrderStatus,
+    ProductStatus,
+    ProductWithInventory,
     StaffDashboardSummary,
     StaffOrderDetails,
     StaffOrderFilters,
     StaffOrderPage,
     StaffRequestContext,
     StaffRole,
+    StockState,
 )
 from commerce.repositories import InvalidOrderTransitionError, OrderNotFoundError
+from infrastructure.database.repositories.postgres_catalog_admin_repository import (
+    CatalogAdminAccessDenied,
+    CatalogAdminConflict,
+    CatalogAdminInvalidCursor,
+    CatalogAdminNotFound,
+)
 from infrastructure.security import InvalidAccessTokenError
 from services.staff_auth import (
     InvalidStaffCredentialsError,
     StaffAccessDeniedError,
     normalize_staff_email,
 )
+from services.staff_catalog import CreateProductCommand, UpdateProductCommand
 from services.staff_fulfilment import (
     IdempotencyKeyConflictError,
     StaffTransitionUnavailableError,
@@ -49,6 +70,45 @@ router = APIRouter(prefix="/api/staff/v1", tags=["staff"])
 bearer = HTTPBearer(auto_error=False)
 IDEMPOTENCY_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{8,128}$")
 IF_MATCH_PATTERN = re.compile(r'^"([1-9][0-9]*)"$')
+
+
+def require_admin(context: StaffRequestContext) -> None:
+    if context.role != StaffRole.ADMIN:
+        STAFF_AUTHORIZATION_DENIALS.labels("catalog_inventory_admin").inc()
+        raise StaffAPIError(403, "staff_access_denied", "Staff access is denied.", context.request_id)
+
+
+def mutation_headers(context: StaffRequestContext, key: str | None, match: str | None, *, version_required: bool = True) -> tuple[str, int | None]:
+    if key is None or not IDEMPOTENCY_PATTERN.fullmatch(key):
+        raise StaffAPIError(400, "invalid_request", "A valid Idempotency-Key is required.", context.request_id)
+    if not version_required:
+        return key, None
+    parsed = IF_MATCH_PATTERN.fullmatch(match or "")
+    if parsed is None:
+        raise StaffAPIError(400, "invalid_request", "A valid If-Match version is required.", context.request_id)
+    return key, int(parsed.group(1))
+
+
+def catalog_error(error: Exception, context: StaffRequestContext) -> StaffAPIError:
+    if isinstance(error, CatalogAdminAccessDenied):
+        return StaffAPIError(403, "staff_access_denied", "Staff access is denied.", context.request_id)
+    if isinstance(error, CatalogAdminNotFound):
+        return StaffAPIError(404, "product_not_found", "The product was not found.", context.request_id)
+    if isinstance(error, CatalogAdminInvalidCursor):
+        return StaffAPIError(400, "invalid_request", "The pagination cursor is invalid.", context.request_id)
+    if isinstance(error, CatalogAdminConflict):
+        status = 503 if error.code == "temporarily_unavailable" else 409
+        message = error.code.replace("_", " ").capitalize() + "."
+        if error.current is not None and error.code == "stale_product_version":
+            message = f"The product changed; current version is {error.current.product.version}."
+        elif error.current is not None and error.code == "stale_inventory_version":
+            message = (
+                f"Inventory changed; current version is {error.current.inventory_version}, "
+                f"on hand is {error.current.on_hand_quantity}, reserved is "
+                f"{error.current.reserved_quantity}."
+            )
+        return StaffAPIError(status, error.code, message, context.request_id)
+    return StaffAPIError(400, "invalid_request", "The request is invalid.", context.request_id)
 
 
 class StaffAPIError(Exception):
@@ -138,6 +198,140 @@ async def me(request: Request, context: Annotated[StaffRequestContext, Depends(s
         staff_id=account.id, display_name=account.display_name,
         active_membership=active_membership, memberships=membership_responses,
     )
+
+
+@router.get("/catalog/options", response_model=CatalogOptions)
+async def catalog_options(request: Request, context: Annotated[StaffRequestContext, Depends(staff_context)]):
+    require_admin(context)
+    return await request.app.state.application_container.staff_catalog_service.options(context)
+
+
+@router.get("/catalog/products", response_model=AdminProductPage)
+async def catalog_products(
+    request: Request, context: Annotated[StaffRequestContext, Depends(staff_context)],
+    status: ProductStatus | None = None, category_id: UUID | None = None,
+    query: Annotated[str | None, Query(max_length=200)] = None,
+    stock_state: StockState | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50, cursor: str | None = None,
+):
+    require_admin(context)
+    try:
+        return await request.app.state.application_container.staff_catalog_service.list_products(
+            context, status=status, category_id=category_id,
+            query=" ".join(query.casefold().split()) if query else None,
+            stock_state=stock_state, limit=limit, cursor=cursor,
+        )
+    except Exception as error:
+        raise catalog_error(error, context) from error
+
+
+@router.post("/catalog/products", response_model=ProductWithInventory)
+async def create_catalog_product(
+    body: CreateProductRequest, request: Request,
+    context: Annotated[StaffRequestContext, Depends(staff_context)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+):
+    require_admin(context)
+    key, _ = mutation_headers(context, idempotency_key, None, version_required=False)
+    try:
+        return await request.app.state.application_container.staff_catalog_service.create_product(
+            context, CreateProductCommand.model_validate(body.model_dump()), key
+        )
+    except Exception as error:
+        raise catalog_error(error, context) from error
+
+
+@router.get("/catalog/products/{product_id}", response_model=ProductWithInventory)
+async def catalog_product(product_id: UUID, request: Request, context: Annotated[StaffRequestContext, Depends(staff_context)]):
+    require_admin(context)
+    result = await request.app.state.application_container.staff_catalog_service.get_product(context, product_id)
+    if result is None:
+        raise StaffAPIError(404, "product_not_found", "The product was not found.", context.request_id)
+    return result
+
+
+@router.patch("/catalog/products/{product_id}", response_model=ProductWithInventory)
+async def update_catalog_product(
+    product_id: UUID, body: UpdateProductRequest, request: Request,
+    context: Annotated[StaffRequestContext, Depends(staff_context)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+):
+    require_admin(context)
+    if not body.model_fields_set:
+        raise StaffAPIError(400, "invalid_request", "At least one field is required.", context.request_id)
+    key, version = mutation_headers(context, idempotency_key, if_match)
+    try:
+        return await request.app.state.application_container.staff_catalog_service.update_product(
+            context, product_id, version or 0,
+            UpdateProductCommand.model_validate(body.model_dump()), key, body.model_fields_set,
+        )
+    except Exception as error:
+        raise catalog_error(error, context) from error
+
+
+@router.patch("/catalog/products/{product_id}/status", response_model=ProductWithInventory)
+async def change_catalog_product_status(
+    product_id: UUID, body: ProductStatusRequest, request: Request,
+    context: Annotated[StaffRequestContext, Depends(staff_context)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+):
+    require_admin(context)
+    key, version = mutation_headers(context, idempotency_key, if_match)
+    try:
+        return await request.app.state.application_container.staff_catalog_service.change_status(
+            context, product_id, version or 0, body.status, body.reason, key
+        )
+    except Exception as error:
+        raise catalog_error(error, context) from error
+
+
+@router.post("/inventory/products/{product_id}/adjustments", response_model=InventoryAdjustmentResult)
+async def adjust_inventory(
+    product_id: UUID, body: InventoryAdjustmentRequest, request: Request,
+    context: Annotated[StaffRequestContext, Depends(staff_context)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+):
+    require_admin(context)
+    key, version = mutation_headers(context, idempotency_key, if_match)
+    try:
+        movement_type = ManualInventoryMovementType(body.movement_type)
+    except ValueError as error:
+        raise StaffAPIError(422, "invalid_movement_type", "The movement type is invalid.", context.request_id) from error
+    try:
+        return await request.app.state.application_container.staff_catalog_service.adjust(
+            context, product_id, version or 0, movement_type, body.quantity, body.reason, key
+        )
+    except Exception as error:
+        raise catalog_error(error, context) from error
+
+
+@router.get("/inventory/products/{product_id}/movements", response_model=InventoryMovementPage)
+async def inventory_movements(
+    product_id: UUID, request: Request,
+    context: Annotated[StaffRequestContext, Depends(staff_context)],
+    movement_type: InventoryMovementType | None = None,
+    created_from: datetime | None = None, created_to: datetime | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50, cursor: str | None = None,
+):
+    require_admin(context)
+    if any(value is not None and value.utcoffset() is None for value in (created_from, created_to)) or (created_from and created_to and (created_from > created_to or created_to-created_from > timedelta(days=366))):
+        raise StaffAPIError(400, "invalid_request", "The movement date range is invalid.", context.request_id)
+    try:
+        return await request.app.state.application_container.staff_catalog_service.movements(
+            context, product_id, movement_type=movement_type, created_from=created_from,
+            created_to=created_to, limit=limit, cursor=cursor,
+        )
+    except Exception as error:
+        raise catalog_error(error, context) from error
+
+
+@router.get("/inventory/summary", response_model=InventorySummary)
+async def inventory_summary(request: Request, context: Annotated[StaffRequestContext, Depends(staff_context)]):
+    require_admin(context)
+    return await request.app.state.application_container.staff_catalog_service.summary(context)
 
 
 @router.get("/orders", response_model=StaffOrderPage)

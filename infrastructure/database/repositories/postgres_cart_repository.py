@@ -131,7 +131,7 @@ class PostgresCartRepository(CartRepository):
 
             product_row = await connection.fetchrow(
                 """
-                SELECT p.id, p.name, p.price, p.currency, p.unit, p.available,
+                SELECT p.id, p.name, p.price, p.currency, p.unit, p.status,
                        COALESCE(b.on_hand_quantity - b.reserved_quantity, 0) sellable
                 FROM products p
                 LEFT JOIN inventory_balances b ON b.product_id=p.id
@@ -143,7 +143,7 @@ class PostgresCartRepository(CartRepository):
             )
             if (
                 product_row is None
-                or not product_row["available"]
+                or product_row["status"] != "ACTIVE"
                 or product_row["sellable"] <= 0
             ):
                 await connection.execute(
@@ -485,7 +485,7 @@ class PostgresCartRepository(CartRepository):
             price=row["price"],
             currency=row["currency"],
             unit=row["unit"],
-            available=row["available"],
+            status=row["status"],
         )
 
     @staticmethod
@@ -507,7 +507,7 @@ class PostgresCartRepository(CartRepository):
                             "price": str(item.product.price),
                             "currency": item.product.currency,
                             "unit": item.product.unit,
-                            "available": item.product.available,
+                            "status": item.product.status.value,
                         },
                         "quantity": str(item.quantity),
                     }
@@ -570,7 +570,7 @@ class PostgresCartRepository(CartRepository):
 
         item_rows = await connection.fetch(
             """
-            SELECT p.id, p.name, p.price, p.currency, p.unit, p.available,
+            SELECT p.id, p.name, p.price, p.currency, p.unit, p.status,
                    ci.quantity
             FROM cart_items AS ci
             JOIN products AS p ON p.id = ci.product_id
@@ -593,7 +593,7 @@ class PostgresCartRepository(CartRepository):
                         price=row["price"],
                         currency=row["currency"],
                         unit=row["unit"],
-                        available=row["available"],
+                        status=row["status"],
                     ),
                     quantity=row["quantity"],
                 )

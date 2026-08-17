@@ -48,7 +48,7 @@ class PostgresInventoryRepository(InventoryRepository):
         product_ids = sorted({item.product_id for item in items}, key=str)
         rows = await self._connection.fetch(
             """
-            SELECT product_id, on_hand_quantity, reserved_quantity
+            SELECT product_id, tenant_id, on_hand_quantity, reserved_quantity
             FROM inventory_balances
             WHERE product_id = ANY($1::uuid[])
             ORDER BY product_id
@@ -79,10 +79,15 @@ class PostgresInventoryRepository(InventoryRepository):
         if shortages:
             raise InsufficientStockError(shortages)
 
+        tenant_id = await self._connection.fetchval(
+            """SELECT c.tenant_id FROM orders o JOIN carts c ON c.id=o.source_cart_id
+               WHERE o.id=$1""", order_id,
+        )
+        reservations = [(uuid4(), order_id, item.product_id, item.quantity) for item in items]
         await self._connection.executemany(
             """
             UPDATE inventory_balances
-            SET reserved_quantity = reserved_quantity + $2, updated_at = now()
+            SET reserved_quantity = reserved_quantity + $2, version=version+1, updated_at = now()
             WHERE product_id = $1
             """,
             [(item.product_id, item.quantity) for item in items],
@@ -93,7 +98,21 @@ class PostgresInventoryRepository(InventoryRepository):
                 id, order_id, product_id, quantity, status, created_at
             ) VALUES ($1, $2, $3, $4, 'ACTIVE', now())
             """,
-            [(uuid4(), order_id, item.product_id, item.quantity) for item in items],
+            reservations,
+        )
+        await self._connection.executemany(
+            """INSERT INTO inventory_movements
+               (id,tenant_id,product_id,movement_type,quantity,on_hand_delta,reserved_delta,
+                on_hand_before,on_hand_after,reserved_before,reserved_after,reference_type,
+                reference_id,reason,actor_type,created_at)
+               VALUES ($1,$2,$3,'RESERVATION',$4,0,$4,$5,$5,$6,$6+$4,
+                       'INVENTORY_RESERVATION',$7,'Order reservation','SYSTEM',now())""",
+            [
+                (uuid4(), tenant_id, item.product_id, item.quantity,
+                 balances[item.product_id]["on_hand_quantity"],
+                 balances[item.product_id]["reserved_quantity"], reservation[0])
+                for item, reservation in zip(items, reservations, strict=True)
+            ],
         )
         return await self._load_for_order(order_id)
 
@@ -115,7 +134,7 @@ class PostgresInventoryRepository(InventoryRepository):
                 ).get_balance(product_id)
         row = await self._connection.fetchrow(
             """
-            SELECT product_id, on_hand_quantity, reserved_quantity, updated_at
+            SELECT product_id, tenant_id, on_hand_quantity, reserved_quantity, version, updated_at
             FROM inventory_balances
             WHERE product_id = $1
             """,
@@ -163,7 +182,7 @@ class PostgresInventoryRepository(InventoryRepository):
         product_ids = [row["product_id"] for row in reservations]
         balance_rows = await self._connection.fetch(
             """
-            SELECT product_id, on_hand_quantity, reserved_quantity
+            SELECT product_id, tenant_id, on_hand_quantity, reserved_quantity
             FROM inventory_balances
             WHERE product_id = ANY($1::uuid[])
             ORDER BY product_id
@@ -187,7 +206,7 @@ class PostgresInventoryRepository(InventoryRepository):
             UPDATE inventory_balances
             SET on_hand_quantity = on_hand_quantity - $2,
                 reserved_quantity = reserved_quantity - $3,
-                updated_at = now()
+                version=version+1, updated_at = now()
             WHERE product_id = $1
             """,
             [
@@ -195,6 +214,26 @@ class PostgresInventoryRepository(InventoryRepository):
                     row["product_id"],
                     0 if release else row["quantity"],
                     row["quantity"],
+                )
+                for row in reservations
+            ],
+        )
+        movement_type = "RELEASE" if release else "CONSUMPTION"
+        reason = "Order reservation release" if release else "Order inventory consumption"
+        await self._connection.executemany(
+            """INSERT INTO inventory_movements
+               (id,tenant_id,product_id,movement_type,quantity,on_hand_delta,reserved_delta,
+                on_hand_before,on_hand_after,reserved_before,reserved_after,reference_type,
+                reference_id,reason,actor_type,created_at)
+               VALUES ($1,$2,$3,$4,$5,$6,-$5,$7,$8,$9,$9-$5,
+                       'INVENTORY_RESERVATION',$10,$11,'SYSTEM',now())""",
+            [
+                (
+                    uuid4(), balances[row["product_id"]]["tenant_id"], row["product_id"],
+                    movement_type, row["quantity"], 0 if release else -row["quantity"],
+                    balances[row["product_id"]]["on_hand_quantity"],
+                    balances[row["product_id"]]["on_hand_quantity"] - (0 if release else row["quantity"]),
+                    balances[row["product_id"]]["reserved_quantity"], row["id"], reason,
                 )
                 for row in reservations
             ],

@@ -50,6 +50,13 @@ Staff mutations use optimistic order versions and transactionally persist the
 order update, inventory effect, status history, notification intent, and API
 idempotency result.
 
+Catalog and inventory administration follow the same deterministic staff path.
+ADMIN-only services own validation and invariants; PostgreSQL repositories own
+tenant-scoped locking, independent product/inventory versions, idempotency, catalog
+history, balances, and immutable inventory movements. Order reservation, release,
+and consumption append ledger movements inside their existing transaction. The
+customer graph and capability registry are not involved.
+
 ---
 
 ## Layers
