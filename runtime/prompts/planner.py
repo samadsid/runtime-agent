@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from commerce.models import CommerceSession, CustomerProfileProjection
+from commerce.models import CommerceSession, CustomerProfileProjection, OnboardingStage
 from runtime.capabilities import CapabilityRegistry
 from runtime.contracts import (
     Message,
@@ -68,7 +68,18 @@ class PlannerPromptBuilder(PromptBuilder):
         planner_prompt += "\n\nCustomer profile projection:\n" + "\n".join(
             (
                 f"Profile available: {projection.profile_available}",
+                f"Stable trusted identity: {projection.has_stable_identity}",
                 f"Onboarding completed: {projection.onboarding_completed}",
+                "Pending onboarding workflow: "
+                + str(
+                    session.customer_onboarding.stage
+                    in {
+                        OnboardingStage.COLLECTING_DETAILS,
+                        OnboardingStage.REVIEWING_DETAILS,
+                    }
+                ),
+                "Pending deferred intent: "
+                + str(session.deferred_customer_intent is not None),
                 f"Preferred name: {projection.preferred_name or 'None.'}",
                 "Missing fields: "
                 + (

@@ -31,6 +31,8 @@ def test_commerce_session_renderer_preserves_result_ordinals() -> None:
         "2. Chicken Wings\n"
         "Current catalog browse (separate ordinal namespace):\n"
         "None.\n"
+        "Deferred customer intent:\n"
+        "None.\n"
         "Selected product:\n"
         "Chicken Breast\n"
         "Cart items:\n"

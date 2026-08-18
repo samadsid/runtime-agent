@@ -15,3 +15,4 @@ class Category(BaseModel):
     description: str | None = None
     display_order: int = 0
     is_active: bool = True
+    customer_visible: bool = True

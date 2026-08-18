@@ -28,6 +28,11 @@ from .catalog_browse import (
 from .category import Category
 from .checkout import CheckoutStage, CheckoutState, DeliveryDetailField
 from .commerce_session import CommerceSession
+from .customer_journey import (
+    DeferredCustomerIntent,
+    DeferredCustomerIntentKind,
+    DeferredOrderAction,
+)
 from .customer_order import OrderSummary, PendingOrderCancellation
 from .direct_cart import (
     DirectCartResult,
@@ -141,6 +146,9 @@ __all__ = [
     "CreateProviderCheckoutRequest",
     "CustomerOnboardingState",
     "CustomerProfileProjection",
+    "DeferredCustomerIntent",
+    "DeferredCustomerIntentKind",
+    "DeferredOrderAction",
     "DeliveryDetailField",
     "DirectCartResult",
     "DirectCartResultKind",

@@ -159,3 +159,4 @@ async def test_skip_clears_pending_personal_data() -> None:
     assert result.session.customer_onboarding == CustomerOnboardingState(
         stage=OnboardingStage.SKIPPED
     )
+    assert result.session.deferred_customer_intent is None

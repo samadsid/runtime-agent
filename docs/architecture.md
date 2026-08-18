@@ -227,6 +227,19 @@ saved addresses. PostgreSQL remains authoritative; navigation reloads the
 requested tenant-scoped page and product selection revalidates current
 visibility, availability, and sellable inventory before updating selection.
 
+`CommerceSession.deferred_customer_intent` stores only a bounded, typed projection
+of a supported commerce request that arrived before stable-channel onboarding was
+confirmed. The execution boundary redirects that request to onboarding, then resumes
+it after profile persistence with the original trusted request identity. Retryable
+continuation failures retain the projection; successful or terminal continuations
+clear it. Capabilities do not invoke other capabilities and PostgreSQL remains
+authoritative for every resumed business operation.
+
+For an onboarded customer's greeting or broad discovery request, category-led entry
+loads the first current tenant-scoped category page. Category and product choices use
+the existing catalog browse state and isolated ordinal namespaces; direct product,
+cart, checkout, and order intents continue to bypass the category menu.
+
 `CommerceSession.checkout` is short-term workflow state. It records the
 reviewed source cart and exact cart version, collection stage, delivery details,
 and any current stock-recovery choices until the workflow is reset. It is

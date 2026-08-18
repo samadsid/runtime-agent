@@ -12,6 +12,8 @@ from commerce.models import (
     CheckoutStage,
     CheckoutState,
     CommerceSession,
+    DeferredCustomerIntent,
+    DeferredCustomerIntentKind,
     DeliveryDetailField,
     OrderStatus,
     OrderSummary,
@@ -126,6 +128,14 @@ def test_configured_serializer_round_trips_durable_commerce_models(
             order_id=order_id,
             requested_at=datetime.now(timezone.utc),
         ),
+        deferred_customer_intent=DeferredCustomerIntent(
+            kind=DeferredCustomerIntentKind.DIRECT_CART_ADD,
+            product_query="Chicken Breast",
+            quantity=Decimal(2),
+            stated_unit="kg",
+            source_request_id="whatsapp:wamid.original",
+            created_at=datetime.now(timezone.utc),
+        ),
     )
     serializer = GraphCheckpointer().instance.serde
 
@@ -149,4 +159,5 @@ def test_configured_serializer_round_trips_durable_commerce_models(
     )
     assert restored.recent_order_results == session.recent_order_results
     assert restored.pending_order_cancellation == session.pending_order_cancellation
+    assert restored.deferred_customer_intent == session.deferred_customer_intent
     assert "Deserializing unregistered type" not in caplog.text

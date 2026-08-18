@@ -30,10 +30,10 @@ def browse_result_output(
             return _simple(
                 session,
                 ExecutionStatus.NOT_FOUND,
-                "catalog-empty",
-                "The catalog has no categories to display.",
-                "catalog-empty-follow-up",
-                "Would you like to see available products instead?",
+                "no-categories-available",
+                "No shopping categories are currently available.",
+                "request-product-search",
+                "What product name would you like me to search for?",
             )
         state = CatalogBrowseState(
             kind=CatalogBrowseKind.CATEGORIES,
@@ -128,13 +128,30 @@ def browse_result_output(
             "Which catalog category would you like instead?",
         )
     if result.kind is CatalogBrowseResultKind.CATEGORY_EMPTY:
-        return _simple(
+        assert result.categories is not None
+        refreshed = browse_result_output(
             session,
-            ExecutionStatus.NOT_FOUND,
-            "catalog-category-empty",
-            "That category has no available products.",
-            "choose-another-category",
-            "Would you like to choose another category?",
+            CatalogBrowseResult(
+                kind=CatalogBrowseResultKind.CATEGORIES,
+                categories=result.categories,
+            ),
+            created_at,
+        )
+        refreshed_outcome = refreshed.outcome
+        assert isinstance(refreshed_outcome, GeneratedExecutionOutcome)
+        return CapabilityOutput(
+            session=refreshed.session,
+            outcome=refreshed_outcome.model_copy(
+                update={
+                    "status": ExecutionStatus.NOT_FOUND,
+                    "fragments": (
+                        ApprovedResponseFragment(
+                            id="category-no-products",
+                            text="That category no longer has purchasable products; the category list was refreshed.",
+                        ),
+                    ) + refreshed_outcome.fragments,
+                }
+            ),
         )
     return _simple(
         session,

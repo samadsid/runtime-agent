@@ -18,6 +18,7 @@ from runtime.capabilities.catalog_browse_support import (
     browse_result_output,
     temporary_failure,
 )
+from runtime.observability import CustomerJourneyObserver, NullCustomerJourneyObserver
 
 
 class BrowseCatalogArguments(BaseModel):
@@ -29,10 +30,14 @@ class BrowseCatalogArguments(BaseModel):
 
 class BrowseCatalogCapability(Capability[CommerceSession]):
     def __init__(
-        self, service: CatalogBrowseService, clock: Callable[[], datetime] | None = None
+        self,
+        service: CatalogBrowseService,
+        clock: Callable[[], datetime] | None = None,
+        observer: CustomerJourneyObserver | None = None,
     ) -> None:
         self._service = service
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._observer = observer or NullCustomerJourneyObserver()
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -64,5 +69,10 @@ class BrowseCatalogCapability(Capability[CommerceSession]):
                 input.context.tenant_id, view=arguments.view, category_query=query
             )
         except Exception:  # noqa: BLE001 - repository failures are customer-safe here
+            self._observer.category_view("failure")
             return temporary_failure(input.session)
+        if result.kind.value == "CATEGORIES":
+            self._observer.category_view("success")
+        elif result.kind.value == "PRODUCTS":
+            self._observer.product_view("success")
         return browse_result_output(input.session, result, self._clock())

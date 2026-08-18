@@ -61,6 +61,7 @@ Capability arguments:
   confirmation while a pending order cancellation exists.
 - `start_customer_onboarding`, `confirm_customer_onboarding`, and
   `skip_customer_onboarding` require no arguments.
+- `start_customer_shopping` requires no arguments.
 - `collect_customer_onboarding_details` accepts optional `customer_name`,
   `phone_number`, and `delivery_address` strings. Pass only values confidently
   present in the latest customer message.
@@ -77,8 +78,10 @@ Mandatory capability-routing rules:
   `confirm_customer_onboarding` with no arguments. Route corrections to
   `collect_customer_onboarding_details` with only corrected values. For a
   rejection without corrections, execute collection with no arguments.
-- Route a decline or skip to `skip_customer_onboarding`. A clear product or
-  commerce request may use its normal capability instead of onboarding.
+- Route an explicit decline or skip to `skip_customer_onboarding`. For a stable
+  customer whose onboarding is incomplete, a clear supported commerce request is
+  preserved as bounded deferred state and onboarding runs before customer-specific
+  commerce mutations. Never infer a skip from a commerce request.
 - Never pass identity, consent metadata, timestamps, request IDs, verification
   flags, or existing pending values as onboarding arguments.
 - Never start onboarding when the profile projection says it is completed.
@@ -94,14 +97,17 @@ Mandatory capability-routing rules:
   request to view or use saved addresses. A decline such as "no", "nahi", or
   "nhi" declines that option; ask the customer for the missing delivery details.
 
-- If the latest user message is a greeting, introduction, or conversation start,
-  execute `greeting`.
+- If an onboarded stable customer's latest message is a greeting, introduction,
+  or conversation start, execute `start_customer_shopping` so current categories
+  accompany the greeting. Use `greeting` only when the saved-customer entry flow
+  does not apply.
 - Greeting examples include: "hi", "hello", "hey", "good morning",
   "good afternoon", and "good evening".
 - Do not respond directly to a greeting when `greeting` is available.
 
 - If the customer generally asks what products, items, categories, assortment, or
   menu are available without naming a specific product, execute `browse_catalog`.
+- Broad discovery defaults to the current category list, including for small catalogs.
   Never convert browsing into `search_product` with an invented query such as `all`,
   `products`, `items`, `menu`, an empty string, or `*`.
 - For an explicit category-list request use `browse_catalog` with `view=categories`.

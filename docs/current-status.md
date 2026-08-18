@@ -2,6 +2,23 @@
 
 ## Completed
 
+### Category-Led Customer Shopping Journey
+
+- Stable first-time customer requests are redirected to combined profile onboarding
+  before customer-specific commerce mutations without discarding a supported intent
+- Typed, TTL-bounded deferred browse, search, direct-add, cart, and order projections
+  are checkpointed with trusted request identity and resumed after confirmation
+- Successful onboarding without a stronger intent and returning-customer greetings
+  show the current authoritative category page
+- Broad discovery is category-first while explicit product, cart, checkout, and order
+  intents retain direct routing
+- Customer-visible, active, non-empty category eligibility is tenant-scoped and
+  deterministic; changed categories refresh current choices safely
+- Deferred direct additions reuse existing cart idempotency and catalog/stock
+  revalidation, preventing duplicate mutations during retry or webhook replay
+
+The graph remains `START → PlannerNode → ExecuteNode → ResponseNode → END`.
+
 ### React Native Staff Design System and Responsive UI
 
 - Typed MeatUncle semantic light/dark themes following system appearance

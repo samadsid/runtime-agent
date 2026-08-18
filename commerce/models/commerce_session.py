@@ -6,6 +6,7 @@ from .cart_editing import PendingCartClear
 from .cart_item import CartItem
 from .catalog_browse import CatalogBrowseState
 from .checkout import CheckoutState
+from .customer_journey import DeferredCustomerIntent
 from .customer_order import OrderSummary, PendingOrderCancellation
 from .direct_cart import PendingCartAddition
 from .product import Product
@@ -35,3 +36,4 @@ class CommerceSession(BaseModel):
     customer_onboarding: CustomerOnboardingState = Field(
         default_factory=CustomerOnboardingState
     )
+    deferred_customer_intent: DeferredCustomerIntent | None = None

@@ -115,7 +115,12 @@ class PostgresProductRepository(ProductRepository):
         )
 
     async def list_categories(
-        self, tenant_id: UUID, *, page: int, page_size: int
+        self,
+        tenant_id: UUID,
+        *,
+        page: int,
+        page_size: int,
+        hide_empty: bool = True,
     ) -> CatalogCategoryPage:
         offset = (page - 1) * page_size
         rows = await self._pool.pool.fetch(
@@ -123,7 +128,8 @@ class PostgresProductRepository(ProductRepository):
             SELECT category.id, category.name
             FROM product_categories AS category
             WHERE category.tenant_id = $1 AND category.active = TRUE
-              AND EXISTS (
+              AND category.customer_visible = TRUE
+              AND ($4 = FALSE OR EXISTS (
                 SELECT 1 FROM products AS product
                 JOIN inventory_balances AS balance ON balance.product_id = product.id
                 WHERE product.tenant_id = category.tenant_id
@@ -132,13 +138,14 @@ class PostgresProductRepository(ProductRepository):
                   AND product.customer_visible = TRUE
                   AND product.status = 'ACTIVE'
                   AND balance.on_hand_quantity - balance.reserved_quantity > 0
-              )
+              ))
             ORDER BY category.display_order, lower(category.name), category.id
             LIMIT $2 OFFSET $3
             """,
             tenant_id,
             page_size + 1,
             offset,
+            hide_empty,
         )
         options = tuple(
             CatalogCategoryOption(category_id=row["id"], name=row["name"])
@@ -152,7 +159,7 @@ class PostgresProductRepository(ProductRepository):
         )
 
     async def resolve_category(
-        self, tenant_id: UUID, query: str, *, limit: int
+        self, tenant_id: UUID, query: str, *, limit: int, hide_empty: bool = True
     ) -> CategoryResolution:
         normalized = " ".join(query.casefold().split())
         rows = await self._pool.pool.fetch(
@@ -160,6 +167,17 @@ class PostgresProductRepository(ProductRepository):
             SELECT id, name
             FROM product_categories
             WHERE tenant_id = $1 AND active = TRUE
+              AND customer_visible = TRUE
+              AND ($5 = FALSE OR EXISTS (
+                SELECT 1 FROM products AS product
+                JOIN inventory_balances AS balance ON balance.product_id = product.id
+                WHERE product.tenant_id = product_categories.tenant_id
+                  AND product.category_id = product_categories.id
+                  AND product.active = TRUE
+                  AND product.customer_visible = TRUE
+                  AND product.status = 'ACTIVE'
+                  AND balance.on_hand_quantity - balance.reserved_quantity > 0
+              ))
               AND lower(regexp_replace(trim(name), '\\s+', ' ', 'g')) LIKE $2
             ORDER BY
               CASE WHEN lower(regexp_replace(trim(name), '\\s+', ' ', 'g')) = $3 THEN 0 ELSE 1 END,
@@ -170,6 +188,7 @@ class PostgresProductRepository(ProductRepository):
             f"%{normalized}%",
             normalized,
             limit + 1,
+            hide_empty,
         )
         matches = tuple(
             CatalogCategoryOption(category_id=row["id"], name=row["name"])
@@ -205,7 +224,7 @@ class PostgresProductRepository(ProductRepository):
               ON category.tenant_id = product.tenant_id AND category.id = product.category_id
             WHERE product.tenant_id = $1
               AND ($2::uuid IS NULL OR product.category_id = $2)
-              AND ($2::uuid IS NULL OR category.active = TRUE)
+              AND ($2::uuid IS NULL OR (category.active = TRUE AND category.customer_visible = TRUE))
               AND product.active = TRUE
               AND product.customer_visible = TRUE
               AND product.status = 'ACTIVE'
@@ -252,7 +271,7 @@ class PostgresProductRepository(ProductRepository):
             WHERE product.tenant_id = $1 AND product.id = $2
               AND product.active = TRUE AND product.customer_visible = TRUE
               AND product.status = 'ACTIVE'
-              AND (product.category_id IS NULL OR category.active = TRUE)
+              AND (product.category_id IS NULL OR (category.active = TRUE AND category.customer_visible = TRUE))
               AND balance.on_hand_quantity - balance.reserved_quantity > 0
             """,
             tenant_id,

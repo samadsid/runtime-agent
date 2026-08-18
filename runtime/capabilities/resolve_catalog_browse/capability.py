@@ -25,6 +25,7 @@ from runtime.contracts import (
     FollowUpRequest,
     GeneratedExecutionOutcome,
 )
+from runtime.observability import CustomerJourneyObserver, NullCustomerJourneyObserver
 
 
 class ResolveCatalogBrowseArguments(BaseModel):
@@ -50,10 +51,12 @@ class ResolveCatalogBrowseCapability(Capability[CommerceSession]):
         service: CatalogBrowseService,
         ttl: timedelta = timedelta(minutes=15),
         clock: Callable[[], datetime] | None = None,
+        observer: CustomerJourneyObserver | None = None,
     ) -> None:
         self._service = service
         self._ttl = ttl
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._observer = observer or NullCustomerJourneyObserver()
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -80,6 +83,7 @@ class ResolveCatalogBrowseCapability(Capability[CommerceSession]):
                 "Would you like to browse the catalog again?",
             )
         if self._clock() - state.created_at > self._ttl:
+            self._observer.expired_reference(state.kind.value)
             return _simple(
                 input.session.model_copy(update={"catalog_browse": None}),
                 ExecutionStatus.NOT_FOUND,
@@ -139,6 +143,7 @@ class ResolveCatalogBrowseCapability(Capability[CommerceSession]):
                     state.categories[arguments.ordinal - 1].category_id,
                     1,
                 )
+                self._observer.category_selection(result.kind.value.lower())
                 return browse_result_output(input.session, result, self._clock())
             if arguments.ordinal > len(state.products):
                 return self._invalid(input.session)
@@ -179,9 +184,9 @@ class ResolveCatalogBrowseCapability(Capability[CommerceSession]):
                 ),
                 follow_up=FollowUpRequest(
                     id="quantity-request",
-                    question="Please specify the quantity you would like to order.",
+                    question=f"What quantity in {product.unit} would you like to order?",
                 ),
-                protected_values=(product.name,),
+                protected_values=(product.name, product.unit),
             ),
         )
 

@@ -1,5 +1,28 @@
 # Architecture Decisions
 
+## ADR-020
+
+Use typed deferred intent and deterministic customer-entry routing for category-led shopping.
+
+Status
+
+Accepted
+
+Reason
+
+A stable first-time customer must complete profile review before customer-specific
+commerce mutations without losing a clear initial request. The execution boundary
+therefore redirects a validated planner command to onboarding and checkpoints only a
+bounded intent projection. After profile persistence it resumes through the existing
+capability/service path using the original trusted request identity. This preserves
+the frozen Planner → Execute → Response graph, keeps capabilities independent, and
+makes direct-cart continuation idempotent under webhook replay and checkpoint races.
+
+Returning greetings and broad discovery load authoritative categories by default;
+stronger product, cart, checkout, and order intents retain their existing routes.
+
+---
+
 ## ADR-019
 
 Use one typed semantic React Native design system for the staff application.

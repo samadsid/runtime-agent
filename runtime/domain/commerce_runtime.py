@@ -38,6 +38,11 @@ class CommerceRuntime:
             )
         except SavedDeliveryPersistenceError:
             projection = CustomerProfileProjection(hydration_failed=True)
+        projection = projection.model_copy(
+            update={
+                "has_stable_identity": customer_context.channel_customer_id is not None
+            }
+        )
         graph_state = graph_state.model_copy(
             update={"customer_profile_projection": projection}
         )

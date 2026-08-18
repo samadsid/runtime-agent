@@ -77,7 +77,12 @@ class InMemoryProductRepository(ProductRepository):
         return len([product for product in self._products if product.available])
 
     async def list_categories(
-        self, tenant_id: UUID, *, page: int, page_size: int
+        self,
+        tenant_id: UUID,
+        *,
+        page: int,
+        page_size: int,
+        hide_empty: bool = True,
     ) -> CatalogCategoryPage:
         ordered = sorted(
             (
@@ -85,10 +90,14 @@ class InMemoryProductRepository(ProductRepository):
                 for category in self._categories
                 if category.tenant_id == tenant_id
                 and category.is_active
-                and any(
-                    product.available
-                    and self._product_categories.get(product.id) == category.id
-                    for product in self._products
+                and category.customer_visible
+                and (
+                    not hide_empty
+                    or any(
+                        product.available
+                        and self._product_categories.get(product.id) == category.id
+                        for product in self._products
+                    )
                 )
             ),
             key=lambda category: (
@@ -110,7 +119,7 @@ class InMemoryProductRepository(ProductRepository):
         )
 
     async def resolve_category(
-        self, tenant_id: UUID, query: str, *, limit: int
+        self, tenant_id: UUID, query: str, *, limit: int, hide_empty: bool = True
     ) -> CategoryResolution:
         normalized = " ".join(query.casefold().split())
         matches = sorted(
@@ -119,6 +128,15 @@ class InMemoryProductRepository(ProductRepository):
                 for category in self._categories
                 if category.tenant_id == tenant_id
                 and category.is_active
+                and category.customer_visible
+                and (
+                    not hide_empty
+                    or any(
+                        product.available
+                        and self._product_categories.get(product.id) == category.id
+                        for product in self._products
+                    )
+                )
                 and normalized in " ".join(category.name.casefold().split())
             ),
             key=lambda category: (
@@ -146,7 +164,13 @@ class InMemoryProductRepository(ProductRepository):
     async def list_browsable_products(
         self, tenant_id: UUID, *, category_id: UUID | None, page: int, page_size: int
     ) -> CatalogProductPage:
-        del tenant_id
+        eligible_category_ids = {
+            category.id
+            for category in self._categories
+            if category.tenant_id == tenant_id
+            and category.is_active
+            and category.customer_visible
+        }
         ordered = sorted(
             (
                 product
@@ -154,7 +178,10 @@ class InMemoryProductRepository(ProductRepository):
                 if product.available
                 and (
                     category_id is None
-                    or self._product_categories.get(product.id) == category_id
+                    or (
+                        self._product_categories.get(product.id) == category_id
+                        and category_id in eligible_category_ids
+                    )
                 )
             ),
             key=lambda product: (product.name.casefold(), str(product.id)),

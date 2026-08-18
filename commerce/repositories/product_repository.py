@@ -55,13 +55,18 @@ class ProductRepository(ABC):
 
     @abstractmethod
     async def list_categories(
-        self, tenant_id: UUID, *, page: int, page_size: int
+        self,
+        tenant_id: UUID,
+        *,
+        page: int,
+        page_size: int,
+        hide_empty: bool = True,
     ) -> CatalogCategoryPage:
         raise NotImplementedError
 
     @abstractmethod
     async def resolve_category(
-        self, tenant_id: UUID, query: str, *, limit: int
+        self, tenant_id: UUID, query: str, *, limit: int, hide_empty: bool = True
     ) -> CategoryResolution:
         raise NotImplementedError
 

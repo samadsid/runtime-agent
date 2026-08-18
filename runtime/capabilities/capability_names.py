@@ -43,3 +43,4 @@ class CapabilityName(str, Enum):
     COLLECT_CUSTOMER_ONBOARDING_DETAILS = "collect_customer_onboarding_details"
     CONFIRM_CUSTOMER_ONBOARDING = "confirm_customer_onboarding"
     SKIP_CUSTOMER_ONBOARDING = "skip_customer_onboarding"
+    START_CUSTOMER_SHOPPING = "start_customer_shopping"

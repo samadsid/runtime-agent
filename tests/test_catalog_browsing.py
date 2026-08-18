@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from commerce.models import (
     CatalogBrowseKind,
     Category,
+    CategoryResolutionKind,
     CommerceSession,
     Product,
 )
@@ -50,9 +51,14 @@ def input_for(session: CommerceSession, data: dict) -> CapabilityInput[CommerceS
 
 
 @pytest.mark.asyncio
-async def test_small_catalog_auto_returns_bounded_products() -> None:
+async def test_small_catalog_auto_returns_categories() -> None:
     products = [product("Wings"), product("Breast")]
-    repository = InMemoryProductRepository(products)
+    category = Category(id=uuid4(), tenant_id=TENANT, name="Chicken")
+    repository = InMemoryProductRepository(
+        products,
+        [category],
+        {item.id: category.id for item in products},
+    )
     service = CatalogBrowseService(
         repository,
         CatalogBrowsePolicy(product_page_size=1, direct_product_limit=10),
@@ -60,10 +66,9 @@ async def test_small_catalog_auto_returns_bounded_products() -> None:
 
     result = await service.browse(TENANT)
 
-    assert result.kind is CatalogBrowseResultKind.PRODUCTS
-    assert result.products is not None
-    assert [item.name for item in result.products.items] == ["Breast"]
-    assert result.products.has_next is True
+    assert result.kind is CatalogBrowseResultKind.CATEGORIES
+    assert result.categories is not None
+    assert [item.name for item in result.categories.items] == ["Chicken"]
 
 
 @pytest.mark.asyncio
@@ -92,23 +97,80 @@ async def test_large_catalog_returns_categories_and_category_products() -> None:
 
 
 @pytest.mark.asyncio
+async def test_hidden_categories_are_not_listed_or_resolved() -> None:
+    hidden = Category(
+        id=uuid4(), tenant_id=TENANT, name="Hidden", customer_visible=False
+    )
+    item = product("Secret product")
+    repository = InMemoryProductRepository([item], [hidden], {item.id: hidden.id})
+    service = CatalogBrowseService(repository, CatalogBrowsePolicy())
+
+    categories = await service.categories(TENANT, 1)
+    resolution = await repository.resolve_category(TENANT, "Hidden", limit=10)
+
+    assert categories.categories is not None
+    assert categories.categories.items == ()
+    assert resolution.kind is CategoryResolutionKind.NONE
+
+
+@pytest.mark.asyncio
+async def test_category_deactivated_after_display_refreshes_current_categories() -> (
+    None
+):
+    stale = Category(id=uuid4(), tenant_id=TENANT, name="Chicken")
+    current = Category(id=uuid4(), tenant_id=TENANT, name="Seafood")
+    chicken = product("Chicken Breast")
+    fish = product("Fish")
+    repository = InMemoryProductRepository(
+        [chicken, fish],
+        [stale, current],
+        {chicken.id: stale.id, fish.id: current.id},
+    )
+    service = CatalogBrowseService(repository, CatalogBrowsePolicy())
+    now = datetime.now(timezone.utc)
+    shown = await BrowseCatalogCapability(service, clock=lambda: now).execute(
+        input_for(CommerceSession(), {"view": "categories"})
+    )
+    repository._categories = (
+        stale.model_copy(update={"is_active": False}),
+        current,
+    )
+
+    refreshed = await ResolveCatalogBrowseCapability(
+        service, clock=lambda: now
+    ).execute(input_for(shown.session, {"ordinal": 1}))
+
+    assert refreshed.outcome.status is ExecutionStatus.NOT_FOUND
+    assert refreshed.session.catalog_browse is not None
+    assert [item.name for item in refreshed.session.catalog_browse.categories] == [
+        "Seafood"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_browse_capability_stores_page_and_resolver_selects_reloaded_product() -> (
     None
 ):
     now = datetime.now(timezone.utc)
     breast = product("Chicken Breast")
-    repository = InMemoryProductRepository([breast])
+    category = Category(id=uuid4(), tenant_id=TENANT, name="Chicken")
+    repository = InMemoryProductRepository(
+        [breast], [category], {breast.id: category.id}
+    )
     service = CatalogBrowseService(repository, CatalogBrowsePolicy())
     browse = BrowseCatalogCapability(service, clock=lambda: now)
     shown = await browse.execute(input_for(CommerceSession(), {}))
 
     assert shown.session.catalog_browse is not None
-    assert shown.session.catalog_browse.kind is CatalogBrowseKind.PRODUCTS
+    assert shown.session.catalog_browse.kind is CatalogBrowseKind.CATEGORIES
     assert isinstance(shown.outcome, GeneratedExecutionOutcome)
-    assert shown.outcome.fragments[0].id == "catalog-product-1"
+    assert shown.outcome.fragments[0].id == "catalog-category-1"
 
+    products_shown = await ResolveCatalogBrowseCapability(
+        service, clock=lambda: now
+    ).execute(input_for(shown.session, {"ordinal": 1}))
     resolved = await ResolveCatalogBrowseCapability(service, clock=lambda: now).execute(
-        input_for(shown.session, {"ordinal": 1})
+        input_for(products_shown.session, {"ordinal": 1})
     )
 
     assert resolved.session.catalog_browse is None
@@ -122,7 +184,11 @@ async def test_invalid_navigation_preserves_state_and_expiry_clears_only_browse(
     None
 ):
     now = datetime.now(timezone.utc)
-    repository = InMemoryProductRepository([product("Breast")])
+    breast = product("Breast")
+    category = Category(id=uuid4(), tenant_id=TENANT, name="Chicken")
+    repository = InMemoryProductRepository(
+        [breast], [category], {breast.id: category.id}
+    )
     service = CatalogBrowseService(repository, CatalogBrowsePolicy())
     shown = await BrowseCatalogCapability(service, clock=lambda: now).execute(
         input_for(CommerceSession(), {})

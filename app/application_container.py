@@ -11,6 +11,9 @@ from app.jobs import (
     NotificationReconciliationJob,
     PaymentReconciliationJob,
 )
+from app.observability.customer_journey_metrics import (
+    PrometheusCustomerJourneyObserver,
+)
 from channels.models import WhatsAppProviderName
 from channels.templates import WhatsAppTemplateRegistry
 from commerce.models import CommerceSession
@@ -108,6 +111,7 @@ from runtime.capabilities.skip_customer_onboarding import (
 from runtime.capabilities.start_customer_onboarding import (
     StartCustomerOnboardingCapability,
 )
+from runtime.capabilities.start_customer_shopping import StartCustomerShoppingCapability
 from runtime.capabilities.start_online_payment import StartOnlinePaymentCapability
 from runtime.capabilities.switch_order_to_cash_on_delivery import (
     SwitchOrderToCashOnDeliveryCapability,
@@ -166,6 +170,7 @@ class ApplicationContainer:
     ):
 
         self.settings = settings
+        self.customer_journey_observer = PrometheusCustomerJourneyObserver()
         self.payment_rate_limiter = FixedWindowRateLimiter()
         self.twilio_request_validator = None
         self.twilio_message_provider = None
@@ -306,7 +311,9 @@ class ApplicationContainer:
                 self.settings.STAFF_JWT_PUBLIC_KEY or ""
             ).replace("\\n", "\n")
             token_codec = AccessTokenCodec(
-                private_key=(self.settings.STAFF_JWT_PRIVATE_KEY or "").replace("\\n", "\n"),
+                private_key=(self.settings.STAFF_JWT_PRIVATE_KEY or "").replace(
+                    "\\n", "\n"
+                ),
                 public_keys=public_keys,
                 active_key_id=self.settings.STAFF_JWT_ACTIVE_KEY_ID,
                 algorithm=self.settings.STAFF_JWT_ALGORITHM,
@@ -316,7 +323,9 @@ class ApplicationContainer:
             )
             self.staff_token_codec = token_codec
             self.staff_authentication_service = StaffAuthenticationService(
-                self.staff_repository, Argon2PasswordHasher(), token_codec,
+                self.staff_repository,
+                Argon2PasswordHasher(),
+                token_codec,
                 self.settings.DEFAULT_TENANT_ID,
             )
             self.staff_fulfilment_service = StaffFulfilmentService(
@@ -327,7 +336,10 @@ class ApplicationContainer:
             )
             self.staff_catalog_service = StaffCatalogService(
                 self.staff_catalog_repository,
-                tuple(value.upper() for value in self.settings.CATALOG_SUPPORTED_CURRENCIES),
+                tuple(
+                    value.upper()
+                    for value in self.settings.CATALOG_SUPPORTED_CURRENCIES
+                ),
                 tuple(self.settings.CATALOG_SUPPORTED_UNITS),
             )
 
@@ -412,6 +424,7 @@ class ApplicationContainer:
                 product_page_size=self.settings.CATALOG_BROWSE_PRODUCT_PAGE_SIZE,
                 category_page_size=self.settings.CATALOG_BROWSE_CATEGORY_PAGE_SIZE,
                 direct_product_limit=self.settings.CATALOG_BROWSE_DIRECT_PRODUCT_LIMIT,
+                hide_empty_categories=self.settings.CATALOG_HIDE_EMPTY_CATEGORIES,
             ),
         )
 
@@ -498,6 +511,9 @@ class ApplicationContainer:
             ConfirmCustomerOnboardingCapability(self.saved_delivery_details_service)
         )
         self.skip_customer_onboarding_capability = SkipCustomerOnboardingCapability()
+        self.start_customer_shopping_capability = StartCustomerShoppingCapability(
+            self.catalog_browse_service, self.customer_journey_observer
+        )
 
         self.search_product_capability = SearchProductCapability(
             service=self.search_product_service,
@@ -505,11 +521,12 @@ class ApplicationContainer:
 
         self.select_product_capability = SelectProductCapability()
         self.browse_catalog_capability = BrowseCatalogCapability(
-            self.catalog_browse_service
+            self.catalog_browse_service, observer=self.customer_journey_observer
         )
         self.resolve_catalog_browse_capability = ResolveCatalogBrowseCapability(
             self.catalog_browse_service,
             ttl=timedelta(seconds=self.settings.CATALOG_BROWSE_STATE_TTL_SECONDS),
+            observer=self.customer_journey_observer,
         )
 
         self.add_to_cart_capability = AddToCartCapability(
@@ -613,6 +630,7 @@ class ApplicationContainer:
                 self.collect_customer_onboarding_details_capability,
                 self.confirm_customer_onboarding_capability,
                 self.skip_customer_onboarding_capability,
+                self.start_customer_shopping_capability,
                 self.search_product_capability,
                 self.select_product_capability,
                 self.browse_catalog_capability,
@@ -697,6 +715,10 @@ class ApplicationContainer:
             memory_manager=self.memory_manager,
             message_adapter=self.message_adapter,
             response_generator=self.response_generator,
+            deferred_intent_ttl=timedelta(
+                seconds=self.settings.CUSTOMER_DEFERRED_INTENT_TTL_SECONDS
+            ),
+            customer_journey_observer=self.customer_journey_observer,
         )
 
         self.runtime = CommerceRuntime(

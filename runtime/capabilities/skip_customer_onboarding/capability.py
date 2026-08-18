@@ -27,7 +27,12 @@ class SkipCustomerOnboardingCapability(Capability[CommerceSession]):
     ) -> CapabilityOutput[CommerceSession]:
         state = CustomerOnboardingState(stage=OnboardingStage.SKIPPED)
         return CapabilityOutput(
-            session=input.session.model_copy(update={"customer_onboarding": state}),
+            session=input.session.model_copy(
+                update={
+                    "customer_onboarding": state,
+                    "deferred_customer_intent": None,
+                }
+            ),
             outcome=GeneratedExecutionOutcome(
                 status=ExecutionStatus.SUCCESS,
                 fragments=(

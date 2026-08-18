@@ -33,6 +33,14 @@ class CommerceSessionRenderer:
             for ordinal, browse_product in enumerate(browse.products, 1):
                 lines.append(f"{ordinal}. Product: {browse_product.name}")
 
+        lines.append("Deferred customer intent:")
+        deferred = session.deferred_customer_intent
+        if deferred is None:
+            lines.append("None.")
+        else:
+            lines.append(f"Kind: {deferred.kind.value}")
+            lines.append(f"Created at: {deferred.created_at.isoformat()}")
+
         lines.append("Selected product:")
         lines.append(
             session.selected_product.name

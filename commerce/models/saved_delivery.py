@@ -49,6 +49,7 @@ class CustomerProfileProjection(BaseModel):
     preferred_name: str | None = None
     missing_fields: tuple[ProfileField, ...] = ()
     hydration_failed: bool = False
+    has_stable_identity: bool = False
 
 
 class SavedDeliveryProfile(BaseModel):
