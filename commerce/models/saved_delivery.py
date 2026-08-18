@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class ChannelName(str, Enum):
     DEVELOPMENT_HTTP = "development_http"
-    TWILIO_WHATSAPP = "twilio_whatsapp"
+    WHATSAPP = "whatsapp"
 
 
 class OnboardingStatus(str, Enum):

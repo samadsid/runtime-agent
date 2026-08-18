@@ -1,4 +1,12 @@
-from .channel_metrics import INBOX_LATENCY, OUTBOUND, RETRIES, WEBHOOKS, WORKER_HEALTH
+from .channel_metrics import (
+    AMBIGUOUS_SENDS,
+    DELIVERY_EVENTS,
+    INBOX_LATENCY,
+    OUTBOUND,
+    RETRIES,
+    WEBHOOKS,
+    WORKER_HEALTH,
+)
 from .notification_metrics import (
     NOTIFICATION_EVENTS,
     NOTIFICATION_LATENCY,
@@ -7,6 +15,8 @@ from .notification_metrics import (
 )
 
 __all__ = [
+    "AMBIGUOUS_SENDS",
+    "DELIVERY_EVENTS",
     "INBOX_LATENCY",
     "NOTIFICATION_EVENTS",
     "NOTIFICATION_LATENCY",

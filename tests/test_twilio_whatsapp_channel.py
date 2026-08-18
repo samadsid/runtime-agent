@@ -107,6 +107,7 @@ async def test_signed_inbound_is_persisted_and_acknowledged_without_runtime() ->
     )
     assert repository.ingested[0]["body"] == "नमस्ते"
     assert repository.ingested[0]["message_kind"] == MessageKind.TEXT
+    assert repository.ingested[0]["sender_id"] == "+919876543210"
 
 
 @pytest.mark.asyncio
@@ -134,7 +135,7 @@ async def test_processor_passes_trusted_context_and_persists_reply() -> None:
     inbound = InboundMessage(
         id=uuid4(),
         tenant_id=uuid4(),
-        channel=ChannelName.TWILIO_WHATSAPP,
+        channel=ChannelName.WHATSAPP,
         provider_message_id="SM" + "3" * 32,
         conversation_id=uuid4(),
         sender_id="whatsapp:+919876543210",
@@ -175,7 +176,7 @@ async def test_unsupported_message_never_invokes_runtime() -> None:
     inbound = InboundMessage(
         id=uuid4(),
         tenant_id=uuid4(),
-        channel=ChannelName.TWILIO_WHATSAPP,
+        channel=ChannelName.WHATSAPP,
         provider_message_id="SM" + "4" * 32,
         conversation_id=uuid4(),
         sender_id="whatsapp:+919876543210",

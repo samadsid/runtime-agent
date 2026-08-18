@@ -238,6 +238,27 @@ Completed
 
 The REST channel and frozen graph remain unchanged.
 
+### Meta WhatsApp Cloud API Channel
+
+Completed
+
+- `disabled`, `twilio`, or `meta_cloud` selection at the composition root
+- Provider-neutral WhatsApp identity with collision-checked Twilio backfill
+- Meta verification challenge and raw-body App Secret HMAC validation
+- Bounded text/unsupported-message and delivery-status webhook normalization
+- Atomic batch inbox/status persistence with provider-scoped `wamid` deduplication
+- Pooled Graph API text/template delivery with typed permanent, retryable, and
+  ambiguous outcomes
+- Persisted approved-template metadata, service-window enforcement, monotonic
+  sent/delivered/read projection, orphan callbacks, and immutable event history
+- Safe cutover blocking, provider-aware readiness, secret-safe metrics, and Meta
+  adapter/webhook tests
+
+Graph API `v25.0` is the deployment default. Operators must confirm it remains
+supported for the configured Meta app and review it no later than 2027-11-18.
+The test-number setup, verified recipient, long-lived production token, approved
+business templates, and public HTTPS endpoint remain deployment-owned.
+
 ---
 
 ### Customer Web Chat

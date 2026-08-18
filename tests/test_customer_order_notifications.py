@@ -70,7 +70,7 @@ def test_template_unknown_placeholder_fails_without_evaluation() -> None:
         key="invalid",
         version=1,
         notification_type=NotificationType.ORDER_CONFIRMED,
-        channel=ChannelName.TWILIO_WHATSAPP,
+        channel=ChannelName.WHATSAPP,
         locale="en-IN",
         body_template="{order_reference} {internal_reason}",
         provider_variables=("order_reference", "internal_reason"),

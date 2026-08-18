@@ -2,51 +2,57 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Mapping
 from uuid import UUID
 
-from channels.models import OutboundStatus, ProviderMessageResult
+from channels.models import (
+    ApprovedTemplateMessage,
+    OutboundStatus,
+    ProviderMessageResult,
+)
+from channels.providers import (
+    AmbiguousSendError,
+    PermanentSendError,
+    RetryableSendError,
+)
 
-
-class TwilioRetryableSendError(RuntimeError):
-    pass
-
-
-class TwilioPermanentSendError(RuntimeError):
-    pass
-
-
-class TwilioAmbiguousSendError(RuntimeError):
-    pass
+TwilioRetryableSendError = RetryableSendError
+TwilioPermanentSendError = PermanentSendError
+TwilioAmbiguousSendError = AmbiguousSendError
 
 
 class TwilioWhatsAppMessageProvider:
     def __init__(
-        self, account_sid: str, auth_token: str, sender_id: str, max_body_chars: int
+        self,
+        account_sid: str,
+        auth_token: str,
+        sender_id: str,
+        max_body_chars: int,
+        status_callback_url: str,
     ) -> None:
         from twilio.rest import Client
 
         self._client = Client(account_sid, auth_token)
         self._sender_id = sender_id
         self._max_body_chars = max_body_chars
+        self._status_callback_url = status_callback_url
 
     async def send_text(
         self,
         recipient_id: str,
         body: str,
         idempotency_key: UUID,
-        status_callback_url: str,
     ) -> ProviderMessageResult:
         del idempotency_key  # Twilio message creation has no universal idempotency key.
+        recipient = self._twilio_recipient(recipient_id)
         if not body or len(body) > self._max_body_chars:
             raise TwilioPermanentSendError("invalid_body_length")
         try:
             message = await asyncio.to_thread(
                 self._client.messages.create,
                 from_=self._sender_id,
-                to=recipient_id,
+                to=recipient,
                 body=body,
-                status_callback=status_callback_url,
+                status_callback=self._status_callback_url,
             )
         except Exception as exc:
             # Imports stay local to the provider boundary.
@@ -69,24 +75,21 @@ class TwilioWhatsAppMessageProvider:
     async def send_template(
         self,
         recipient_id: str,
-        content_sid: str,
-        content_variables: Mapping[str, str],
+        template: ApprovedTemplateMessage,
         idempotency_key: UUID,
-        status_callback_url: str,
     ) -> ProviderMessageResult:
         del idempotency_key
-        if not content_sid.startswith("HX") or not content_variables:
+        recipient = self._twilio_recipient(recipient_id)
+        if not template.name.startswith("HX") or not template.parameters:
             raise TwilioPermanentSendError("invalid_content_template")
         try:
             message = await asyncio.to_thread(
                 self._client.messages.create,
                 from_=self._sender_id,
-                to=recipient_id,
-                content_sid=content_sid,
-                content_variables=json.dumps(
-                    dict(content_variables), ensure_ascii=False
-                ),
-                status_callback=status_callback_url,
+                to=recipient,
+                content_sid=template.name,
+                content_variables=json.dumps(template.parameters, ensure_ascii=False),
+                status_callback=self._status_callback_url,
             )
         except Exception as exc:
             from requests import Timeout
@@ -102,3 +105,10 @@ class TwilioWhatsAppMessageProvider:
         if not message.sid:
             raise TwilioAmbiguousSendError("missing_provider_sid")
         return ProviderMessageResult(provider_message_id=message.sid)
+
+    @staticmethod
+    def _twilio_recipient(recipient_id: str) -> str:
+        value = recipient_id.removeprefix("whatsapp:")
+        if not value.startswith("+") or not value[1:].isdigit():
+            raise TwilioPermanentSendError("invalid_recipient")
+        return f"whatsapp:{value}"

@@ -5,22 +5,44 @@ import logging
 import random
 from datetime import datetime, timedelta, timezone
 
-from app.observability import INBOX_LATENCY, OUTBOUND, RETRIES, WORKER_HEALTH
-from channels.models import InboundMessage, MessageKind, OutboundMessage, OutboundStatus
-from channels.providers import OutboundMessageProvider
+from app.observability import (
+    AMBIGUOUS_SENDS,
+    INBOX_LATENCY,
+    OUTBOUND,
+    RETRIES,
+    WORKER_HEALTH,
+)
+from channels.models import (
+    ApprovedTemplateMessage,
+    InboundMessage,
+    MessageKind,
+    OutboundMessage,
+    OutboundStatus,
+    WhatsAppProviderName,
+)
+from channels.providers import (
+    AmbiguousSendError,
+    OutboundMessageProvider,
+    PermanentSendError,
+    RetryableSendError,
+)
+from channels.templates import WhatsAppTemplateRegistry
 from commerce.models import ChannelName, NotificationContentMode
 from commerce.services import NotificationTemplateError, NotificationTemplateRegistry
-from infrastructure.channels.twilio import (
-    TwilioAmbiguousSendError,
-    TwilioPermanentSendError,
-    TwilioRetryableSendError,
-)
 from infrastructure.database.repositories import PostgresChannelRepository
-from runtime.contracts import ConversationState, CustomerChannelContext, Message
+from runtime.contracts import (
+    ApprovedResponseFragment,
+    ConversationState,
+    CustomerChannelContext,
+    ExecutionStatus,
+    GeneratedExecutionOutcome,
+    Message,
+)
 from runtime.domain.commerce_runtime import CommerceRuntime
+from runtime.responses import ResponseGenerator
 
 logger = logging.getLogger(__name__)
-CHANNEL = ChannelName.TWILIO_WHATSAPP.value
+CHANNEL = ChannelName.WHATSAPP.value
 
 
 class PeriodicChannelWorker:
@@ -76,6 +98,8 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
         lease_seconds: int,
         max_attempts: int,
         interval_seconds: float,
+        provider_name: WhatsAppProviderName = WhatsAppProviderName.TWILIO,
+        response_generator: ResponseGenerator | None = None,
     ) -> None:
         super().__init__(interval_seconds, "inbound")
         self._repository = repository
@@ -84,11 +108,13 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
         self._batch_size = batch_size
         self._lease_seconds = lease_seconds
         self._max_attempts = max_attempts
+        self._provider_name = provider_name
+        self._response_generator = response_generator
 
     async def run_once(self) -> None:
         now = datetime.now(timezone.utc)
         messages = await self._repository.claim_inbound_batch(
-            self._batch_size, now, self._lease_seconds
+            self._batch_size, now, self._lease_seconds, self._provider_name
         )
         await asyncio.gather(*(self._process(message) for message in messages))
 
@@ -101,7 +127,25 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
                 if not acquired:
                     raise RuntimeError("conversation_busy")
                 if inbound.message_kind == MessageKind.UNSUPPORTED:
-                    reply = "Sorry, I can currently help only with text messages."
+                    approved = "Sorry, I can currently help only with text messages."
+                    if self._response_generator is None:
+                        reply = approved
+                    else:
+                        language_signal = await self._repository.latest_text_body(
+                            inbound.conversation_id, exclude_id=inbound.id
+                        )
+                        reply = await self._response_generator.generate(
+                            GeneratedExecutionOutcome(
+                                status=ExecutionStatus.SUCCESS,
+                                fragments=(
+                                    ApprovedResponseFragment(
+                                        id="unsupported-message-limitation",
+                                        text=approved,
+                                    ),
+                                ),
+                            ),
+                            language_signal or "",
+                        )
                 else:
                     conversation = ConversationState(
                         conversation_id=inbound.conversation_id
@@ -114,7 +158,10 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
                         conversation_id=inbound.conversation_id,
                         channel=inbound.channel,
                         channel_customer_id=inbound.sender_id,
-                        request_id=f"twilio-whatsapp:{inbound.provider_message_id}",
+                        request_id=(
+                            f"{'meta' if inbound.provider == WhatsAppProviderName.META_CLOUD else 'twilio'}-"
+                            f"whatsapp:{inbound.provider_message_id}"
+                        ),
                     )
                     result = await self._runtime.chat(conversation, context)
                     reply = (
@@ -150,28 +197,30 @@ class ChannelOutboundDispatcher(PeriodicChannelWorker):
         self,
         repository: PostgresChannelRepository,
         provider: OutboundMessageProvider,
-        status_callback_url: str,
         batch_size: int,
         lease_seconds: int,
         max_attempts: int,
         interval_seconds: float,
         window_hours: int,
         notification_templates: NotificationTemplateRegistry | None = None,
+        provider_templates: WhatsAppTemplateRegistry | None = None,
+        provider_name: WhatsAppProviderName = WhatsAppProviderName.TWILIO,
     ) -> None:
         super().__init__(interval_seconds, "outbound")
         self._repository = repository
         self._provider = provider
-        self._status_callback_url = status_callback_url
         self._batch_size = batch_size
         self._lease_seconds = lease_seconds
         self._max_attempts = max_attempts
         self._window = timedelta(hours=window_hours)
         self._notification_templates = notification_templates
+        self._provider_templates = provider_templates
+        self._provider_name = provider_name
 
     async def run_once(self) -> None:
         now = datetime.now(timezone.utc)
         messages = await self._repository.claim_outbound_batch(
-            self._batch_size, now, self._lease_seconds
+            self._batch_size, now, self._lease_seconds, self._provider_name
         )
         await asyncio.gather(*(self._dispatch(message) for message in messages))
 
@@ -186,6 +235,7 @@ class ChannelOutboundDispatcher(PeriodicChannelWorker):
                 if (
                     outbound.source_inbound_id is not None
                     or self._notification_templates is None
+                    or self._provider_templates is None
                 ):
                     await self._repository.fail_outbound(
                         outbound.id,
@@ -197,63 +247,85 @@ class ChannelOutboundDispatcher(PeriodicChannelWorker):
                     return
                 event = await self._repository.notification_for_outbound(outbound.id)
                 if event is None:
-                    raise TwilioPermanentSendError("missing_notification_delivery")
+                    raise PermanentSendError("missing_notification_delivery")
                 template, _ = self._notification_templates.get(
                     event.notification_type, event.locale
                 )
                 _, variables = self._notification_templates.render(
                     template, event.order_payload()
                 )
-                if template.provider_content_sid is None:
-                    raise TwilioPermanentSendError("missing_content_template")
+                provider_template = self._provider_templates.get(
+                    template, self._provider_name
+                )
                 outbound = await self._repository.upgrade_notification_to_template(
                     outbound.id,
-                    content_sid=template.provider_content_sid,
+                    template_key=template.key,
+                    template_name=provider_template.name,
+                    template_language=provider_template.language,
                     content_variables=variables,
                     now=now,
                 )
             if outbound.content_mode == NotificationContentMode.TEMPLATE:
-                if outbound.content_sid is None or outbound.content_variables is None:
-                    raise TwilioPermanentSendError("incomplete_content_template")
+                template_name = outbound.template_name or outbound.content_sid
+                if template_name is None or outbound.content_variables is None:
+                    raise PermanentSendError("incomplete_content_template")
+                await self._repository.mark_send_started(outbound.id, now)
                 result = await self._provider.send_template(
                     outbound.recipient_id,
-                    outbound.content_sid,
-                    {
-                        str(key): str(value)
-                        for key, value in outbound.content_variables.items()
-                    },
+                    ApprovedTemplateMessage(
+                        key=outbound.template_key or template_name,
+                        name=template_name,
+                        language=outbound.template_language,
+                        parameters={
+                            str(key): str(value)
+                            for key, value in outbound.content_variables.items()
+                        },
+                    ),
                     outbound.id,
-                    self._status_callback_url,
                 )
             else:
                 if outbound.body is None:
-                    raise TwilioPermanentSendError("missing_text_body")
+                    raise PermanentSendError("missing_text_body")
+                await self._repository.mark_send_started(outbound.id, now)
                 result = await self._provider.send_text(
                     outbound.recipient_id,
                     outbound.body,
                     outbound.id,
-                    self._status_callback_url,
                 )
             await self._repository.accept_outbound(
                 outbound.id, result.provider_message_id, now
             )
             OUTBOUND.labels(CHANNEL, "accepted").inc()
-        except TwilioAmbiguousSendError:
+        except AmbiguousSendError as error:
             await self._repository.fail_outbound(
-                outbound.id, OutboundStatus.AMBIGUOUS, "ambiguous_send", now
+                outbound.id,
+                OutboundStatus.AMBIGUOUS,
+                (str(error) or "ambiguous_send")[:64],
+                now,
             )
             OUTBOUND.labels(CHANNEL, "ambiguous").inc()
-        except (TwilioPermanentSendError, NotificationTemplateError, ValueError):
+            AMBIGUOUS_SENDS.labels(CHANNEL).inc()
+        except PermanentSendError as error:
             await self._repository.fail_outbound(
-                outbound.id, OutboundStatus.FAILED, "permanent_provider_error", now
+                outbound.id,
+                OutboundStatus.FAILED,
+                (str(error) or "permanent_provider_error")[:64],
+                now,
             )
             OUTBOUND.labels(CHANNEL, "failed").inc()
-        except TwilioRetryableSendError:
+        except (NotificationTemplateError, ValueError):
+            await self._repository.fail_outbound(
+                outbound.id, OutboundStatus.FAILED, "invalid_template_contract", now
+            )
+            OUTBOUND.labels(CHANNEL, "failed").inc()
+        except RetryableSendError as error:
             retry = outbound.attempt_count < self._max_attempts
             await self._repository.fail_outbound(
                 outbound.id,
                 OutboundStatus.RETRYABLE if retry else OutboundStatus.DEAD_LETTER,
-                "temporary_provider_error" if retry else "attempts_exhausted",
+                (str(error) or "temporary_provider_error")[:64]
+                if retry
+                else "attempts_exhausted",
                 now,
                 _next_attempt(outbound.attempt_count),
             )

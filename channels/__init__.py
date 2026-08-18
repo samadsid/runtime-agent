@@ -2,6 +2,7 @@
 
 from .chat_requests import ChatRequestRecord, ChatRequestStatus
 from .models import (
+    ApprovedTemplateMessage,
     ChannelConversation,
     DeliveryEvent,
     InboundMessage,
@@ -10,10 +11,19 @@ from .models import (
     OutboundMessage,
     OutboundStatus,
     ProviderMessageResult,
+    WhatsAppProviderName,
 )
-from .providers import OutboundMessageProvider
+from .providers import (
+    AmbiguousSendError,
+    OutboundMessageProvider,
+    PermanentSendError,
+    RetryableSendError,
+)
+from .templates import WhatsAppTemplateRegistry
 
 __all__ = [
+    "AmbiguousSendError",
+    "ApprovedTemplateMessage",
     "ChannelConversation",
     "ChatRequestRecord",
     "ChatRequestStatus",
@@ -24,5 +34,9 @@ __all__ = [
     "OutboundMessage",
     "OutboundMessageProvider",
     "OutboundStatus",
+    "PermanentSendError",
     "ProviderMessageResult",
+    "RetryableSendError",
+    "WhatsAppProviderName",
+    "WhatsAppTemplateRegistry",
 ]

@@ -1,10 +1,21 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Protocol
 from uuid import UUID
 
-from .models import ProviderMessageResult
+from .models import ApprovedTemplateMessage, ProviderMessageResult
+
+
+class RetryableSendError(RuntimeError):
+    pass
+
+
+class PermanentSendError(RuntimeError):
+    pass
+
+
+class AmbiguousSendError(RuntimeError):
+    pass
 
 
 class OutboundMessageProvider(Protocol):
@@ -13,14 +24,11 @@ class OutboundMessageProvider(Protocol):
         recipient_id: str,
         body: str,
         idempotency_key: UUID,
-        status_callback_url: str,
     ) -> ProviderMessageResult: ...
 
     async def send_template(
         self,
         recipient_id: str,
-        content_sid: str,
-        content_variables: Mapping[str, str],
+        template: ApprovedTemplateMessage,
         idempotency_key: UUID,
-        status_callback_url: str,
     ) -> ProviderMessageResult: ...

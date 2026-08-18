@@ -22,17 +22,18 @@ async def ready(request: Request) -> Response:
         database = await container.channel_repository.ping()
     except (asyncpg.PostgresError, RuntimeError):
         database = False
-    twilio = (
-        not container.settings.TWILIO_WHATSAPP_ENABLED or container.twilio_configured
+    selected_provider = container.settings.WHATSAPP_PROVIDER
+    whatsapp_config = selected_provider == "disabled" or (
+        container.whatsapp_provider is not None
     )
     workers = True
     if (
-        container.settings.TWILIO_WHATSAPP_ENABLED
-        and container.settings.TWILIO_WHATSAPP_PROCESSOR_ENABLED
+        selected_provider != "disabled"
+        and container.settings.WHATSAPP_PROCESSOR_ENABLED
     ):
         threshold = timedelta(
             seconds=max(
-                10.0, 3 * container.settings.TWILIO_WHATSAPP_PROCESSOR_INTERVAL_SECONDS
+                10.0, 3 * container.settings.WHATSAPP_PROCESSOR_INTERVAL_SECONDS
             )
         )
         now = datetime.now(timezone.utc)
@@ -70,7 +71,8 @@ async def ready(request: Request) -> Response:
             <= timedelta(seconds=max(10.0, 3 * interval))
             for worker, interval in notification_workers
         )
-    healthy = database and twilio and workers and notification_worker
+    workers = workers and not container.whatsapp_workers_blocked
+    healthy = database and whatsapp_config and workers and notification_worker
     return JSONResponse(
         status_code=200 if healthy else 503,
         content={
@@ -78,7 +80,8 @@ async def ready(request: Request) -> Response:
             "components": {
                 "database": database,
                 "workers": workers,
-                "twilio_config": twilio,
+                "whatsapp_config": whatsapp_config,
+                "whatsapp_provider": selected_provider,
                 "notification_worker": notification_worker,
             },
         },

@@ -98,14 +98,21 @@ PostgreSQL integration tests require an already migrated, isolated database:
 TEST_POSTGRES_DSN=postgresql://... pytest tests/test_postgres_cart_repository.py
 ```
 
-## Twilio WhatsApp Sandbox
+## WhatsApp Providers
 
-Apply migration `010_twilio_whatsapp_channel`, activate the Twilio Sandbox for
-WhatsApp, and send its displayed `join <sandbox-code>` message from the test
-account. Start PostgreSQL and FastAPI, then expose FastAPI through an HTTPS
-development tunnel.
+Apply all migrations, including `018_meta_whatsapp_cloud_api`, and select exactly
+one transport with `WHATSAPP_PROVIDER=disabled|twilio|meta_cloud`. The REST/web
+channels remain available in every mode. Switching provider while unresolved work
+belongs to the old provider leaves WhatsApp workers not-ready until operators drain
+or explicitly disposition those rows. Historical Twilio customer identifiers are
+not rewritten or merged automatically; validate and explicitly migrate any mapping
+that must be reused by Meta before cutover.
 
-Configure `TWILIO_WHATSAPP_ENABLED=true`, `TWILIO_ACCOUNT_SID`,
+For Twilio, activate the Sandbox and send its displayed `join <sandbox-code>`
+message from the test account. Start PostgreSQL and FastAPI, then expose FastAPI
+through an HTTPS development tunnel.
+
+Configure `WHATSAPP_PROVIDER=twilio`, `TWILIO_ACCOUNT_SID`,
 `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, and the exact tunnel origin in
 `TWILIO_WHATSAPP_PUBLIC_BASE_URL`. Keep credentials out of source control.
 Configure the Sandbox inbound URL as
@@ -131,6 +138,22 @@ SID for each combination of `ORDER_CONFIRMED`, `ORDER_PREPARING`,
 `"ORDER_CONFIRMED:en-IN"`. Startup deliberately fails if the enabled mapping is
 incomplete, preventing notifications outside the service window from being
 sent incorrectly.
+
+For Meta Cloud API, configure `WHATSAPP_PROVIDER=meta_cloud`, the explicitly
+versioned `META_GRAPH_API_VERSION` (currently `v25.0`), Phone Number ID, WABA ID,
+access token, App Secret, high-entropy verification token, and HTTPS public base
+URL. Configure both GET verification and POST events at
+`{PUBLIC_BASE_URL}/webhooks/meta/whatsapp`, subscribe the WABA to `messages`, and
+verify the intended test recipient before acceptance testing. Never commit or log
+the access token, App Secret, verification token, signature, raw webhook, full
+recipient, or message body.
+
+Outside the customer-service window, Meta notifications require
+`META_NOTIFICATION_TEMPLATES` as JSON keyed by order type and locale, for example
+`"ORDER_CONFIRMED:en-IN":{"name":"order_confirmed_v1","language":"en_US"}`.
+Every supported type/locale must map to a reviewed approved template before
+notification processing is enabled. `hello_world` is setup-only. Confirm the pinned
+Graph version in the Meta app before deployment and review it by 2027-11-18.
 
 Operational endpoints are
 `/health/live`, `/health/ready`, and `/metrics`.

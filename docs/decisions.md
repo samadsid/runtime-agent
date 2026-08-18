@@ -627,3 +627,24 @@ audit history, and notification intent. SecureStore owns only the short-lived ac
 token, TanStack Query owns memory-only server projections, and one retained client
 idempotency key represents each unresolved logical status action. The mobile adapter
 does not invoke or modify the customer graph.
+
+---
+
+## ADR-034
+
+Select one persisted WhatsApp delivery provider through application composition.
+
+Status
+
+Accepted
+
+Reason
+
+Twilio and Meta Cloud API share the same customer channel, durable conversation
+mapping, inbox/outbox workers, notification intent, and runtime idempotency
+boundaries. Persisting the provider on message and delivery records keeps retries
+and callbacks routed to the adapter that owns their external identifiers, while a
+single startup selector prevents both transports from accepting new traffic.
+Provider-specific signatures, credentials, payloads, and errors remain outside
+commerce and LangGraph. A cutover leaves WhatsApp workers not-ready until unresolved
+old-provider work is explicitly drained or dispositioned.

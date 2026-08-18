@@ -27,3 +27,13 @@ WORKER_HEALTH = Gauge(
     "Whether the latest worker iteration succeeded.",
     ("channel", "worker"),
 )
+DELIVERY_EVENTS = Counter(
+    "commerce_channel_delivery_events_total",
+    "Normalized provider delivery status events.",
+    ("channel", "status"),
+)
+AMBIGUOUS_SENDS = Counter(
+    "commerce_channel_ambiguous_sends_total",
+    "Outbound sends that may have been accepted by the provider.",
+    ("channel",),
+)

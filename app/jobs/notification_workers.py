@@ -15,6 +15,8 @@ from app.observability import (
     NOTIFICATION_LOCALE_FALLBACK,
     NOTIFICATION_WORKER_HEALTH,
 )
+from channels.models import WhatsAppProviderName
+from channels.templates import WhatsAppTemplateRegistry
 from commerce.models import (
     ChannelName,
     NotificationContentMode,
@@ -36,6 +38,7 @@ class NotificationOutboxProcessor(PeriodicChannelWorker):
         repository: PostgresNotificationOutboxRepository,
         channel_repository: PostgresChannelRepository,
         templates: NotificationTemplateRegistry,
+        provider_templates: WhatsAppTemplateRegistry,
         sender_id: str,
         batch_size: int,
         lease_seconds: int,
@@ -44,11 +47,13 @@ class NotificationOutboxProcessor(PeriodicChannelWorker):
         interval_seconds: float,
         window_hours: int,
         whatsapp_enabled: bool,
+        provider_name: WhatsAppProviderName = WhatsAppProviderName.TWILIO,
     ) -> None:
         super().__init__(interval_seconds, "notifications")
         self._repository = repository
         self._channel_repository = channel_repository
         self._templates = templates
+        self._provider_templates = provider_templates
         self._sender_id = sender_id
         self._batch_size = batch_size
         self._lease_seconds = lease_seconds
@@ -56,6 +61,7 @@ class NotificationOutboxProcessor(PeriodicChannelWorker):
         self._max_retry_delay = max_retry_delay_seconds
         self._window = timedelta(hours=window_hours)
         self._whatsapp_enabled = whatsapp_enabled
+        self._provider_name = provider_name
 
     async def run_once(self) -> None:
         now = datetime.now(timezone.utc)
@@ -96,10 +102,11 @@ class NotificationOutboxProcessor(PeriodicChannelWorker):
             inside_window = (
                 last_inbound is not None and now - last_inbound <= self._window
             )
-            if not inside_window and template.provider_content_sid is None:
-                raise NotificationTemplateError(
-                    "Approved provider template is unavailable."
-                )
+            provider_template = (
+                self._provider_templates.get(template, self._provider_name)
+                if not inside_window
+                else None
+            )
             mode = (
                 NotificationContentMode.TEXT
                 if inside_window
@@ -113,6 +120,8 @@ class NotificationOutboxProcessor(PeriodicChannelWorker):
                 sender_id=self._sender_id,
                 content_mode=mode,
                 content_variables=variables,
+                provider=self._provider_name,
+                provider_template=provider_template,
                 now=now,
             )
         except (NotificationTemplateError, ValidationError, ValueError):

@@ -6,14 +6,23 @@ from urllib.parse import parse_qsl
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from app.observability import OUTBOUND, WEBHOOKS
-from channels.models import MessageKind, OutboundStatus
+from app.observability import DELIVERY_EVENTS, WEBHOOKS
+from channels.models import MessageKind, OutboundStatus, WhatsAppProviderName
 
 router = APIRouter()
 _MESSAGE_SID = re.compile(r"^SM[0-9A-Fa-f]{32}$")
 _ACCOUNT_SID = re.compile(r"^AC[0-9A-Fa-f]{32}$")
 _WHATSAPP_E164 = re.compile(r"^whatsapp:\+[1-9][0-9]{7,14}$")
 _TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+
+
+def _twilio_active(settings) -> bool:
+    selected = getattr(settings, "WHATSAPP_PROVIDER", None)
+    return (
+        selected == "twilio"
+        if selected is not None
+        else bool(getattr(settings, "TWILIO_WHATSAPP_ENABLED", False))
+    )
 
 
 async def _signed_form(request: Request, url: str) -> dict[str, str]:
@@ -38,7 +47,7 @@ async def _signed_form(request: Request, url: str) -> dict[str, str]:
         raise HTTPException(status_code=400, detail="Malformed webhook.") from exc
     signature = request.headers.get("X-Twilio-Signature")
     if not container.twilio_request_validator.validate(url, parameters, signature):
-        WEBHOOKS.labels("twilio_whatsapp", "signature", "invalid").inc()
+        WEBHOOKS.labels("whatsapp", "signature", "invalid").inc()
         raise HTTPException(status_code=403, detail="Invalid webhook signature.")
     return parameters
 
@@ -46,7 +55,7 @@ async def _signed_form(request: Request, url: str) -> dict[str, str]:
 @router.post("/webhooks/twilio/whatsapp")
 async def twilio_whatsapp_inbound(request: Request) -> Response:
     container = request.app.state.application_container
-    if not container.settings.TWILIO_WHATSAPP_ENABLED:
+    if not _twilio_active(container.settings):
         raise HTTPException(status_code=404, detail="Not found.")
     fields = await _signed_form(request, container.settings.twilio_inbound_url)
     sid = fields.get("MessageSid", "")
@@ -67,7 +76,7 @@ async def twilio_whatsapp_inbound(request: Request) -> Response:
         or recipient != container.settings.TWILIO_WHATSAPP_FROM
         or media_count < 0
     ):
-        WEBHOOKS.labels("twilio_whatsapp", "inbound", "rejected").inc()
+        WEBHOOKS.labels("whatsapp", "inbound", "rejected").inc()
         raise HTTPException(status_code=400, detail="Malformed webhook.")
     if (
         len(body.encode("utf-8"))
@@ -79,23 +88,22 @@ async def twilio_whatsapp_inbound(request: Request) -> Response:
     inbound, created = await container.channel_repository.ingest_inbound(
         tenant_id=container.settings.DEFAULT_TENANT_ID,
         provider_message_id=sid,
-        sender_id=sender,
-        recipient_id=recipient,
+        sender_id=sender.removeprefix("whatsapp:"),
+        recipient_id=recipient.removeprefix("whatsapp:"),
         body=normalized,
         message_kind=kind,
         received_at=datetime.now(timezone.utc),
+        provider=WhatsAppProviderName.TWILIO,
     )
     del inbound
-    WEBHOOKS.labels(
-        "twilio_whatsapp", "inbound", "accepted" if created else "duplicate"
-    ).inc()
+    WEBHOOKS.labels("whatsapp", "inbound", "accepted" if created else "duplicate").inc()
     return Response(content=_TWIML, media_type="application/xml")
 
 
 @router.post("/webhooks/twilio/whatsapp/status", status_code=204)
 async def twilio_whatsapp_status(request: Request) -> Response:
     container = request.app.state.application_container
-    if not container.settings.TWILIO_WHATSAPP_ENABLED:
+    if not _twilio_active(container.settings):
         raise HTTPException(status_code=404, detail="Not found.")
     fields = await _signed_form(request, container.settings.twilio_status_url)
     sid = fields.get("MessageSid", "")
@@ -117,7 +125,11 @@ async def twilio_whatsapp_status(request: Request) -> Response:
         raise HTTPException(status_code=400, detail="Malformed status callback.")
     error_code = fields.get("ErrorCode")
     await container.channel_repository.record_delivery_event(
-        sid, status, error_code, datetime.now(timezone.utc)
+        sid,
+        status,
+        error_code,
+        datetime.now(timezone.utc),
+        provider=WhatsAppProviderName.TWILIO,
     )
-    OUTBOUND.labels("twilio_whatsapp", status.value.lower()).inc()
+    DELIVERY_EVENTS.labels("whatsapp", status.value.lower()).inc()
     return Response(status_code=204)

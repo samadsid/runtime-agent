@@ -303,12 +303,20 @@ These are intentionally separate.
 
 ## External Conversational Channels
 
-Twilio WhatsApp is an infrastructure adapter around `CommerceRuntime`; it does
-not add graph nodes or enter capability models. Signed webhooks persist into a
+WhatsApp is a provider-neutral infrastructure adapter around `CommerceRuntime`;
+it does not add graph nodes or enter capability models. Application composition
+selects exactly one of Twilio, Meta Cloud API, or disabled. Signed provider
+webhooks persist into a
 PostgreSQL inbox, background workers invoke the unchanged graph with transient
 trusted channel context, and the exact approved response is committed to an
 outbox before provider delivery. PostgreSQL channel mappings provide stable UUID
 conversation IDs while LangGraph remains authoritative for conversation state.
+
+Provider identity is persisted on inbox, outbox, and delivery records while the
+customer-facing channel remains `whatsapp`. Provider selection, credentials,
+signature validation, HTTP payloads, and template identifiers stay at the outer
+adapter/composition boundary. Provider changes are deployment operations and are
+blocked from dispatch while unresolved rows belong to another provider.
 
 Inbox leases, oldest-message selection, and tenant/conversation advisory locks
 serialize one graph thread while permitting different conversations to run in

@@ -79,7 +79,7 @@ class NotificationTemplateRegistry:
                 key=f"order.{notification_type.value.lower()}.{selected}",
                 version=self.version,
                 notification_type=notification_type,
-                channel=ChannelName.TWILIO_WHATSAPP,
+                channel=ChannelName.WHATSAPP,
                 locale=selected,
                 body_template=body,
                 provider_content_sid=sid,

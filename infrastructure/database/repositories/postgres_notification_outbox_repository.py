@@ -7,7 +7,11 @@ from uuid import UUID, uuid4
 
 import asyncpg
 
-from channels.models import ChannelConversation
+from channels.models import (
+    ApprovedTemplateMessage,
+    ChannelConversation,
+    WhatsAppProviderName,
+)
 from commerce.models import (
     ChannelName,
     NotificationContentMode,
@@ -137,7 +141,7 @@ class PostgresNotificationOutboxRepository(NotificationOutboxRepository):
                WHERE id=$1 AND tenant_id=$2 AND channel=$3""",
             event.customer_channel_id,
             event.tenant_id,
-            ChannelName.TWILIO_WHATSAPP.value,
+            ChannelName.WHATSAPP.value,
         )
         return ChannelConversation.model_validate(dict(row)) if row else None
 
@@ -151,6 +155,8 @@ class PostgresNotificationOutboxRepository(NotificationOutboxRepository):
         sender_id: str,
         content_mode: NotificationContentMode,
         content_variables: dict[str, str] | None,
+        provider: WhatsAppProviderName,
+        provider_template: ApprovedTemplateMessage | None,
         now: datetime,
     ) -> UUID:
         async with self._pool.pool.acquire() as connection, connection.transaction():
@@ -165,29 +171,33 @@ class PostgresNotificationOutboxRepository(NotificationOutboxRepository):
                 await connection.execute(
                     """
                     INSERT INTO channel_outbound_messages (
-                        id,tenant_id,channel,conversation_id,source_inbound_id,
+                        id,tenant_id,channel,provider,conversation_id,source_inbound_id,
                         recipient_id,sender_id,body,content_mode,content_sid,
-                        content_variables,status,attempt_count,next_attempt_at,
+                        content_variables,template_key,template_name,template_language,
+                        status,attempt_count,next_attempt_at,
                         created_at,updated_at
-                    ) VALUES ($1,$2,$3,$4,NULL,$5,$6,$7,$8,$9,$10::jsonb,'PENDING',0,$11,$11,$11)
+                    ) VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10,$11::jsonb,
+                              $12,$13,$14,'PENDING',0,$15,$15,$15)
                     """,
                     outbound_id,
                     event.tenant_id,
                     target.channel.value,
+                    provider.value,
                     target.conversation_id,
                     target.channel_customer_id,
                     sender_id,
                     body,
                     content_mode.value,
-                    template.provider_content_sid
-                    if content_mode == NotificationContentMode.TEMPLATE
-                    else None,
+                    provider_template.name if provider_template else None,
                     (
                         json.dumps(content_variables)
                         if content_mode == NotificationContentMode.TEMPLATE
                         and content_variables is not None
                         else None
                     ),
+                    template.key if provider_template else None,
+                    provider_template.name if provider_template else None,
+                    provider_template.language if provider_template else None,
                     now,
                 )
                 await connection.execute(

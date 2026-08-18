@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -13,6 +14,11 @@ from commerce.models import ChannelName, NotificationContentMode
 class MessageKind(str, Enum):
     TEXT = "TEXT"
     UNSUPPORTED = "UNSUPPORTED"
+
+
+class WhatsAppProviderName(str, Enum):
+    TWILIO = "twilio"
+    META_CLOUD = "meta_cloud"
 
 
 class InboundStatus(str, Enum):
@@ -54,6 +60,7 @@ class InboundMessage(BaseModel):
     id: UUID
     tenant_id: UUID
     channel: ChannelName
+    provider: WhatsAppProviderName = WhatsAppProviderName.TWILIO
     provider_message_id: str
     conversation_id: UUID
     sender_id: str
@@ -74,6 +81,7 @@ class OutboundMessage(BaseModel):
     id: UUID
     tenant_id: UUID
     channel: ChannelName
+    provider: WhatsAppProviderName = WhatsAppProviderName.TWILIO
     conversation_id: UUID
     source_inbound_id: UUID | None = None
     recipient_id: str
@@ -82,6 +90,9 @@ class OutboundMessage(BaseModel):
     content_mode: NotificationContentMode = NotificationContentMode.TEXT
     content_sid: str | None = None
     content_variables: dict[str, Any] | None = None
+    template_key: str | None = None
+    template_name: str | None = None
+    template_language: str | None = None
     status: OutboundStatus
     attempt_count: int
     next_attempt_at: datetime
@@ -97,9 +108,11 @@ class DeliveryEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
     id: UUID
     channel: ChannelName
+    provider: WhatsAppProviderName = WhatsAppProviderName.TWILIO
     provider_message_id: str
     status: OutboundStatus
     error_code: str | None
+    provider_event_at: datetime | None = None
     received_at: datetime
 
 
@@ -107,3 +120,35 @@ class ProviderMessageResult(BaseModel):
     model_config = ConfigDict(frozen=True)
     provider_message_id: str
     status: OutboundStatus = OutboundStatus.ACCEPTED
+
+
+class ApprovedTemplateMessage(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    key: str
+    name: str
+    language: str | None = None
+    parameters: dict[str, str]
+
+
+@dataclass(frozen=True)
+class NormalizedInboundEvent:
+    provider_message_id: str
+    sender_id: str
+    recipient_id: str
+    body: str
+    message_kind: MessageKind
+
+
+@dataclass(frozen=True)
+class NormalizedDeliveryStatusEvent:
+    provider_message_id: str
+    status: OutboundStatus
+    provider_event_at: datetime | None
+    error_code: str | None
+
+
+@dataclass(frozen=True)
+class NormalizedWebhookBatch:
+    inbound: tuple[NormalizedInboundEvent, ...]
+    statuses: tuple[NormalizedDeliveryStatusEvent, ...]
+    skipped: int = 0

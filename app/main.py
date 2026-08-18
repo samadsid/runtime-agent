@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.health import router as health_router
+from app.api.meta_whatsapp_webhooks import router as meta_whatsapp_router
 from app.api.routes import router
 from app.api.staff_routes import StaffAPIError
 from app.api.staff_routes import router as staff_router
@@ -87,5 +88,6 @@ async def staff_response_policy(request: Request, call_next):
 
 app.include_router(router)
 app.include_router(twilio_router)
+app.include_router(meta_whatsapp_router)
 app.include_router(health_router)
 app.include_router(staff_router)

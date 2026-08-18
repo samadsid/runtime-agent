@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+import httpx
+
 from app.api.rate_limit import FixedWindowRateLimiter
 from app.jobs import (
     ChannelInboundProcessor,
@@ -9,6 +11,8 @@ from app.jobs import (
     NotificationReconciliationJob,
     PaymentReconciliationJob,
 )
+from channels.models import WhatsAppProviderName
+from channels.templates import WhatsAppTemplateRegistry
 from commerce.models import CommerceSession
 from commerce.services import (
     CartService,
@@ -24,6 +28,11 @@ from commerce.services import (
     PaymentService,
     SavedDeliveryDetailsService,
     SearchProductService,
+)
+from infrastructure.channels.meta import (
+    MetaSignatureValidator,
+    MetaWebhookParser,
+    MetaWhatsAppMessageProvider,
 )
 from infrastructure.channels.twilio import (
     TwilioRequestValidator,
@@ -165,6 +174,14 @@ class ApplicationContainer:
         self.notification_outbox_processor = None
         self.notification_reconciliation_job = None
         self.twilio_configured = False
+        self.meta_signature_validator = None
+        self.meta_webhook_parser = None
+        self.meta_message_provider = None
+        self.meta_http_client: httpx.AsyncClient | None = None
+        self.whatsapp_provider = None
+        self.whatsapp_provider_name: WhatsAppProviderName | None = None
+        self.whatsapp_sender_id: str | None = None
+        self.whatsapp_workers_blocked = False
         self.staff_token_codec: AccessTokenCodec | None = None
         self.staff_authentication_service: StaffAuthenticationService | None = None
         self.staff_fulfilment_service: StaffFulfilmentService | None = None
@@ -190,26 +207,38 @@ class ApplicationContainer:
         Start application infrastructure.
         """
         self.settings.validate_payment_configuration()
-        self.settings.validate_twilio_configuration()
+        self.settings.validate_whatsapp_configuration()
         self.settings.validate_notification_configuration()
         self.settings.validate_web_chat_configuration()
         self.settings.validate_staff_configuration()
-        self._build_twilio()
+        self._build_whatsapp()
         await self.database_pool.connect()
         try:
             await self.graph_checkpointer.start()
             self._build_runtime()
+            if self.whatsapp_provider_name is not None:
+                self.whatsapp_workers_blocked = (
+                    await self.channel_repository.has_unresolved_other_provider(
+                        self.whatsapp_provider_name
+                    )
+                )
             self._start_notification_worker()
             self._start_channel_workers()
             self.payment_reconciliation_job.start()
             self.inventory_reconciliation_job.start()
         except Exception:
+            if self.channel_inbound_processor is not None:
+                await self.channel_inbound_processor.stop()
+            if self.channel_outbound_dispatcher is not None:
+                await self.channel_outbound_dispatcher.stop()
             if self.notification_outbox_processor is not None:
                 await self.notification_outbox_processor.stop()
             if self.notification_reconciliation_job is not None:
                 await self.notification_reconciliation_job.stop()
             await self.graph_checkpointer.close()
             await self.database_pool.close()
+            if self.meta_http_client is not None:
+                await self.meta_http_client.aclose()
             raise
 
     async def shutdown(self) -> None:
@@ -226,6 +255,8 @@ class ApplicationContainer:
             await self.notification_reconciliation_job.stop()
         await self.payment_reconciliation_job.stop()
         await self.inventory_reconciliation_job.stop()
+        if self.meta_http_client is not None:
+            await self.meta_http_client.aclose()
         await self.graph_checkpointer.close()
         await self.database_pool.close()
 
@@ -245,6 +276,10 @@ class ApplicationContainer:
             version=self.settings.NOTIFICATION_TEMPLATE_REGISTRY_VERSION,
             default_locale=self.settings.NOTIFICATION_DEFAULT_LOCALE,
             content_sids=self.settings.TWILIO_NOTIFICATION_CONTENT_SIDS,
+        )
+        self.whatsapp_templates = WhatsAppTemplateRegistry(
+            content_sids=self.settings.TWILIO_NOTIFICATION_CONTENT_SIDS,
+            meta_templates=self.settings.META_NOTIFICATION_TEMPLATES,
         )
         self.chat_request_repository = PostgresChatRequestRepository(self.database_pool)
         self.staff_repository = PostgresStaffRepository(self.database_pool)
@@ -296,8 +331,8 @@ class ApplicationContainer:
                 tuple(self.settings.CATALOG_SUPPORTED_UNITS),
             )
 
-    def _build_twilio(self) -> None:
-        if self.settings.TWILIO_WHATSAPP_ENABLED:
+    def _build_whatsapp(self) -> None:
+        if self.settings.WHATSAPP_PROVIDER == "twilio":
             if (
                 not self.settings.TWILIO_AUTH_TOKEN
                 or not self.settings.TWILIO_ACCOUNT_SID
@@ -311,8 +346,39 @@ class ApplicationContainer:
                 self.settings.TWILIO_AUTH_TOKEN,
                 self.settings.TWILIO_WHATSAPP_FROM,
                 self.settings.TWILIO_WHATSAPP_MAX_OUTBOUND_BODY_CHARS,
+                self.settings.twilio_status_url,
             )
             self.twilio_configured = True
+            self.whatsapp_provider = self.twilio_message_provider
+            self.whatsapp_provider_name = WhatsAppProviderName.TWILIO
+            self.whatsapp_sender_id = self.settings.TWILIO_WHATSAPP_FROM
+        elif self.settings.WHATSAPP_PROVIDER == "meta_cloud":
+            assert self.settings.META_WHATSAPP_APP_SECRET
+            assert self.settings.META_WHATSAPP_BUSINESS_ACCOUNT_ID
+            assert self.settings.META_WHATSAPP_PHONE_NUMBER_ID
+            assert self.settings.META_WHATSAPP_ACCESS_TOKEN
+            self.meta_signature_validator = MetaSignatureValidator(
+                self.settings.META_WHATSAPP_APP_SECRET
+            )
+            self.meta_webhook_parser = MetaWebhookParser(
+                waba_id=self.settings.META_WHATSAPP_BUSINESS_ACCOUNT_ID,
+                phone_number_id=self.settings.META_WHATSAPP_PHONE_NUMBER_ID,
+                max_text_chars=self.settings.META_WHATSAPP_MAX_TEXT_CHARS,
+                max_text_bytes=self.settings.META_WHATSAPP_MAX_INBOUND_BODY_BYTES,
+            )
+            self.meta_http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(self.settings.META_WHATSAPP_HTTP_TIMEOUT_SECONDS)
+            )
+            self.meta_message_provider = MetaWhatsAppMessageProvider(
+                client=self.meta_http_client,
+                graph_api_version=self.settings.META_GRAPH_API_VERSION,
+                phone_number_id=self.settings.META_WHATSAPP_PHONE_NUMBER_ID,
+                access_token=self.settings.META_WHATSAPP_ACCESS_TOKEN,
+                max_text_chars=self.settings.META_WHATSAPP_MAX_TEXT_CHARS,
+            )
+            self.whatsapp_provider = self.meta_message_provider
+            self.whatsapp_provider_name = WhatsAppProviderName.META_CLOUD
+            self.whatsapp_sender_id = self.settings.META_WHATSAPP_PHONE_NUMBER_ID
 
     def _build_commerce(self) -> None:
         """
@@ -640,29 +706,33 @@ class ApplicationContainer:
         )
 
     def _start_channel_workers(self) -> None:
-        if not (
-            self.settings.TWILIO_WHATSAPP_ENABLED
-            and self.settings.TWILIO_WHATSAPP_PROCESSOR_ENABLED
+        if (
+            self.whatsapp_provider is None
+            or self.whatsapp_provider_name is None
+            or self.whatsapp_sender_id is None
+            or not self.settings.WHATSAPP_PROCESSOR_ENABLED
+            or self.whatsapp_workers_blocked
         ):
             return
-        assert self.twilio_message_provider is not None
         common = {
             "repository": self.channel_repository,
-            "batch_size": self.settings.TWILIO_WHATSAPP_PROCESSOR_BATCH_SIZE,
-            "lease_seconds": self.settings.TWILIO_WHATSAPP_LEASE_SECONDS,
-            "max_attempts": self.settings.TWILIO_WHATSAPP_MAX_ATTEMPTS,
-            "interval_seconds": self.settings.TWILIO_WHATSAPP_PROCESSOR_INTERVAL_SECONDS,
+            "batch_size": self.settings.WHATSAPP_PROCESSOR_BATCH_SIZE,
+            "lease_seconds": self.settings.WHATSAPP_LEASE_SECONDS,
+            "max_attempts": self.settings.WHATSAPP_MAX_ATTEMPTS,
+            "interval_seconds": self.settings.WHATSAPP_PROCESSOR_INTERVAL_SECONDS,
+            "provider_name": self.whatsapp_provider_name,
         }
         self.channel_inbound_processor = ChannelInboundProcessor(
             runtime=self.runtime,
-            sender_id=self.settings.TWILIO_WHATSAPP_FROM,
+            sender_id=self.whatsapp_sender_id,
+            response_generator=self.response_generator,
             **common,
         )
         self.channel_outbound_dispatcher = ChannelOutboundDispatcher(
-            provider=self.twilio_message_provider,
-            status_callback_url=self.settings.twilio_status_url,
-            window_hours=self.settings.TWILIO_WHATSAPP_CUSTOMER_SERVICE_WINDOW_HOURS,
+            provider=self.whatsapp_provider,
+            window_hours=self.settings.WHATSAPP_CUSTOMER_SERVICE_WINDOW_HOURS,
             notification_templates=self.notification_templates,
+            provider_templates=self.whatsapp_templates,
             **common,
         )
         self.channel_inbound_processor.start()
@@ -674,20 +744,26 @@ class ApplicationContainer:
             and self.settings.NOTIFICATION_PROCESSOR_ENABLED
         ):
             return
-        if self.settings.TWILIO_WHATSAPP_ENABLED:
-            self.notification_templates.validate_twilio_mappings()
+        if self.whatsapp_workers_blocked:
+            return
+        if self.whatsapp_provider_name is not None:
+            self.whatsapp_templates.validate(
+                self.whatsapp_provider_name, self.notification_templates.locales
+            )
         self.notification_outbox_processor = NotificationOutboxProcessor(
             repository=self.notification_repository,
             channel_repository=self.channel_repository,
             templates=self.notification_templates,
-            sender_id=self.settings.TWILIO_WHATSAPP_FROM,
+            provider_templates=self.whatsapp_templates,
+            sender_id=self.whatsapp_sender_id or "disabled",
             batch_size=self.settings.NOTIFICATION_PROCESSOR_BATCH_SIZE,
             lease_seconds=self.settings.NOTIFICATION_PROCESSOR_LEASE_SECONDS,
             max_attempts=self.settings.NOTIFICATION_PROCESSOR_MAX_ATTEMPTS,
             max_retry_delay_seconds=self.settings.NOTIFICATION_RETRY_MAX_DELAY_SECONDS,
             interval_seconds=self.settings.NOTIFICATION_PROCESSOR_INTERVAL_SECONDS,
-            window_hours=self.settings.TWILIO_WHATSAPP_CUSTOMER_SERVICE_WINDOW_HOURS,
-            whatsapp_enabled=self.settings.TWILIO_WHATSAPP_ENABLED,
+            window_hours=self.settings.WHATSAPP_CUSTOMER_SERVICE_WINDOW_HOURS,
+            whatsapp_enabled=self.whatsapp_provider is not None,
+            provider_name=self.whatsapp_provider_name or WhatsAppProviderName.TWILIO,
         )
         self.notification_outbox_processor.start()
         self.notification_reconciliation_job = NotificationReconciliationJob(
