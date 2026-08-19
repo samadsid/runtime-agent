@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from commerce.models import CommerceSession
+from commerce.models import CommerceSession, CustomerEntryKind
 from commerce.services import CatalogBrowseService
 from runtime.capabilities import (
     Capability,
@@ -83,6 +83,10 @@ class StartCustomerShoppingCapability(Capability[CommerceSession]):
             return temporary_failure(input.session)
         self._observer.category_view("success")
         shown = browse_result_output(input.session, result, datetime.now(timezone.utc))
+        outcome = shown.outcome
+        assert isinstance(outcome, GeneratedExecutionOutcome)
+        if input.context.profile.entry_kind is not CustomerEntryKind.RETURNING:
+            return shown
         greeting = ApprovedResponseFragment(
             id="returning-customer-welcome",
             text=(
@@ -91,8 +95,6 @@ class StartCustomerShoppingCapability(Capability[CommerceSession]):
                 else "Welcome back."
             ),
         )
-        outcome = shown.outcome
-        assert isinstance(outcome, GeneratedExecutionOutcome)
         return CapabilityOutput(
             session=shown.session,
             outcome=outcome.model_copy(

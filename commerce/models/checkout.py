@@ -13,6 +13,7 @@ class CheckoutStage(str, Enum):
     NONE = "NONE"
     REVIEWING_CART = "REVIEWING_CART"
     COLLECTING_DETAILS = "COLLECTING_DETAILS"
+    SELECTING_PAYMENT_METHOD = "SELECTING_PAYMENT_METHOD"
     READY_TO_CONFIRM = "READY_TO_CONFIRM"
 
 
@@ -33,4 +34,4 @@ class CheckoutState(BaseModel):
     delivery_address: str | None = None
     pending_delivery_correction: DeliveryDetailField | None = None
     stock_recovery: StockRecoveryState | None = None
-    payment_method: PaymentMethod | None = PaymentMethod.CASH_ON_DELIVERY
+    payment_method: PaymentMethod | None = None

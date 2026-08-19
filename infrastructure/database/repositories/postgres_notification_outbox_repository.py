@@ -44,17 +44,18 @@ class PostgresNotificationOutboxRepository(NotificationOutboxRepository):
         row = await connection.fetchrow(
             """
             SELECT history.to_status, history.created_at, order_row.payment_method,
-                   order_row.conversation_id, cart.tenant_id,
+                   order_row.conversation_id, order_row.tenant_id,
+                   order_row.public_order_number,
                    SUM(item.unit_price * item.quantity) AS total_amount,
                    MIN(item.currency) AS currency,
                    COUNT(DISTINCT item.currency) AS currency_count
             FROM order_status_history history
             JOIN orders order_row ON order_row.id=history.order_id
-            JOIN carts cart ON cart.id=order_row.source_cart_id
             JOIN order_items item ON item.order_id=order_row.id
             WHERE history.id=$1 AND order_row.id=$2
             GROUP BY history.to_status, history.created_at, order_row.payment_method,
-                     order_row.conversation_id, cart.tenant_id
+                     order_row.conversation_id, order_row.tenant_id,
+                     order_row.public_order_number
             """,
             history_id,
             order_id,
@@ -74,7 +75,7 @@ class PostgresNotificationOutboxRepository(NotificationOutboxRepository):
             row["conversation_id"],
         )
         payload = OrderNotificationPayload(
-            order_reference=str(order_id),
+            order_reference=row["public_order_number"],
             order_status=row["to_status"],
             payment_method=row["payment_method"],
             currency=row["currency"],

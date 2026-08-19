@@ -429,6 +429,19 @@ class PostgresChannelRepository:
             conversation_id,
         )
 
+    async def previous_inbound_at(
+        self, conversation_id: UUID, *, exclude_id: UUID
+    ) -> datetime | None:
+        return await self._pool.pool.fetchval(
+            """
+            SELECT received_at FROM channel_inbound_messages
+            WHERE conversation_id=$1 AND id<>$2
+            ORDER BY received_at DESC,id DESC LIMIT 1
+            """,
+            conversation_id,
+            exclude_id,
+        )
+
     async def latest_text_body(
         self, conversation_id: UUID, *, exclude_id: UUID
     ) -> str | None:

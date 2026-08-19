@@ -2,6 +2,21 @@
 
 ## Completed
 
+### Checkout Conversation UX and Public Order Numbers
+
+- COD-only checkout auto-selects and discloses COD; multiple operational methods use
+  an explicit checkpointed payment-selection stage and confirmation-time revalidation
+- Final reviews contain deterministic item lines, totals, masked contact details,
+  delivery address, payment method, and one final action
+- Response composition and fallback understand WhatsApp-safe sections, lists, totals,
+  and protected business values
+- Newly onboarded, returning-after-inactivity, and continuing customer entries are
+  distinguished by trusted runtime state
+- Orders have immutable tenant-scoped public numbers used by customer, notification,
+  and staff projections while UUIDs remain internal relationship identities
+
+The graph remains `START → PlannerNode → ExecuteNode → ResponseNode → END`.
+
 ### Category-Led Customer Shopping Journey
 
 - Stable first-time customer requests are redirected to combined profile onboarding

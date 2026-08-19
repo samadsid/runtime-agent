@@ -17,7 +17,10 @@ class ExecutionStatus(str, Enum):
 
 class ResponseFragmentKind(str, Enum):
     TEXT = "text"
+    SECTION = "section"
     ITEM = "item"
+    FIELD = "field"
+    TOTAL = "total"
 
 
 class ApprovedResponseFragment(BaseModel):

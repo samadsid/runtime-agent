@@ -24,6 +24,7 @@ from commerce.models import (
 )
 from commerce.repositories import OrderConfirmationPersistenceError, OrderRepository
 from infrastructure.database import DatabasePool
+from infrastructure.database.public_order_numbers import allocate_public_order_number
 
 from .postgres_notification_outbox_repository import (
     PostgresNotificationOutboxRepository,
@@ -37,9 +38,14 @@ class PostgresOrderRepository(OrderRepository):
         self,
         pool: DatabasePool,
         connection: asyncpg.Connection | None = None,
+        *,
+        public_order_prefix: str = "MU",
+        business_timezone: str = "Asia/Kolkata",
     ) -> None:
         self._pool = pool
         self._connection = connection
+        self._public_order_prefix = public_order_prefix
+        self._business_timezone = business_timezone
 
     async def create_confirmed_order_from_cart(
         self,
@@ -59,7 +65,10 @@ class PostgresOrderRepository(OrderRepository):
                         connection.transaction(),
                     ):
                         return await PostgresOrderRepository(
-                            self._pool, connection
+                            self._pool,
+                            connection,
+                            public_order_prefix=self._public_order_prefix,
+                            business_timezone=self._business_timezone,
                         ).create_confirmed_order_from_cart(
                             tenant_id,
                             conversation_id,
@@ -273,18 +282,26 @@ class PostgresOrderRepository(OrderRepository):
             )
 
         history_id = uuid4()
+        public_order_number = await allocate_public_order_number(
+            connection,
+            prefix=self._public_order_prefix,
+            business_timezone=self._business_timezone,
+        )
         await connection.execute(
             """
             INSERT INTO orders (
-                id, source_cart_id, conversation_id, status, payment_method,
+                id, tenant_id, public_order_number, source_cart_id, conversation_id,
+                status, payment_method,
                 customer_name, phone_number, delivery_address,
                 created_at, confirmed_at
             ) VALUES (
-                $1, $2, $3, 'CONFIRMED', 'CASH_ON_DELIVERY',
-                $4, $5, $6, now(), now()
+                $1, $2, $3, $4, $5, 'CONFIRMED', 'CASH_ON_DELIVERY',
+                $6, $7, $8, now(), now()
             )
             """,
             order_id,
+            tenant_id,
+            public_order_number,
             cart_id,
             conversation_id,
             customer_name,
@@ -371,13 +388,13 @@ class PostgresOrderRepository(OrderRepository):
                 ).list_for_conversation(conversation_id, limit)
         rows = await self._connection.fetch(
             """
-            SELECT order_row.id AS order_id, order_row.status,
+            SELECT order_row.id AS order_id, order_row.public_order_number, order_row.status,
                    order_row.created_at, COUNT(item.id) AS item_count,
                    COALESCE(SUM(item.unit_price * item.quantity), 0) AS total_amount
             FROM orders AS order_row
             LEFT JOIN order_items AS item ON item.order_id = order_row.id
             WHERE order_row.conversation_id = $1
-            GROUP BY order_row.id, order_row.status, order_row.created_at
+            GROUP BY order_row.id, order_row.public_order_number, order_row.status, order_row.created_at
             ORDER BY order_row.created_at DESC, order_row.id DESC
             LIMIT $2
             """,
@@ -387,6 +404,7 @@ class PostgresOrderRepository(OrderRepository):
         return tuple(
             OrderSummary(
                 order_id=row["order_id"],
+                public_order_number=row["public_order_number"],
                 status=OrderStatus(row["status"]),
                 created_at=row["created_at"],
                 item_count=row["item_count"],
@@ -443,6 +461,31 @@ class PostgresOrderRepository(OrderRepository):
             LIMIT 1
             """,
             conversation_id,
+        )
+        return (
+            await self._load_order(self._connection, order_id)
+            if order_id is not None
+            else None
+        )
+
+    async def get_for_conversation_by_public_number(
+        self, tenant_id: UUID, conversation_id: UUID, public_order_number: str
+    ) -> Order | None:
+        if self._connection is None:
+            async with self._pool.pool.acquire() as connection:
+                return await PostgresOrderRepository(
+                    self._pool, connection
+                ).get_for_conversation_by_public_number(
+                    tenant_id, conversation_id, public_order_number
+                )
+        order_id = await self._connection.fetchval(
+            """
+            SELECT id FROM orders
+            WHERE tenant_id=$1 AND conversation_id=$2 AND public_order_number=$3
+            """,
+            tenant_id,
+            conversation_id,
+            public_order_number,
         )
         return (
             await self._load_order(self._connection, order_id)
@@ -564,7 +607,7 @@ class PostgresOrderRepository(OrderRepository):
     async def _load_order(connection: asyncpg.Connection, order_id: UUID) -> Order:
         row = await connection.fetchrow(
             """
-            SELECT id, source_cart_id, conversation_id, status, payment_method,
+            SELECT id, tenant_id, public_order_number, source_cart_id, conversation_id, status, payment_method,
                    customer_name, phone_number, delivery_address,
                    created_at, confirmed_at, version, updated_at
             FROM orders WHERE id = $1
@@ -594,6 +637,8 @@ class PostgresOrderRepository(OrderRepository):
         )
         return Order(
             id=row["id"],
+            tenant_id=row["tenant_id"],
+            public_order_number=row["public_order_number"],
             source_cart_id=row["source_cart_id"],
             conversation_id=row["conversation_id"],
             status=OrderStatus(row["status"]),

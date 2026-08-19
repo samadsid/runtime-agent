@@ -57,9 +57,9 @@ class GetOrderStatusCapability(Capability[CommerceSession]):
                 fragments=(
                     ApprovedResponseFragment(
                         id="order-status",
-                        text=f"Order {order.id} status: {order.status.value}.",
+                        text=f"Order {order.public_order_number} status: {order.status.value}.",
                     ),
                 ),
-                protected_values=(str(order.id), order.status.value),
+                protected_values=(order.public_order_number, order.status.value),
             ),
         )

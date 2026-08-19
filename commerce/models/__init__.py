@@ -90,6 +90,7 @@ from .payment import (
 from .product import Product, ProductStatus
 from .saved_delivery import (
     ChannelName,
+    CustomerEntryKind,
     CustomerOnboardingState,
     CustomerProfileProjection,
     OnboardingStage,
@@ -144,6 +145,7 @@ __all__ = [
     "CommerceSession",
     "ConfirmedOrderResult",
     "CreateProviderCheckoutRequest",
+    "CustomerEntryKind",
     "CustomerOnboardingState",
     "CustomerProfileProjection",
     "DeferredCustomerIntent",

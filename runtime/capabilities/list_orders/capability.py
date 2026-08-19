@@ -86,7 +86,7 @@ class ListOrdersCapability(Capability[CommerceSession]):
                 id=f"order-{ordinal}",
                 kind=ResponseFragmentKind.ITEM,
                 text=(
-                    f"{ordinal}. Order {summary.order_id} | "
+                    f"{ordinal}. Order {summary.public_order_number} | "
                     f"Created {summary.created_at.isoformat()} | "
                     f"Status {summary.status.value} | "
                     f"Items {summary.item_count} | "
@@ -104,7 +104,7 @@ class ListOrdersCapability(Capability[CommerceSession]):
                     value
                     for summary in summaries
                     for value in (
-                        str(summary.order_id),
+                        summary.public_order_number,
                         summary.created_at.isoformat(),
                         summary.status.value,
                         str(summary.item_count),

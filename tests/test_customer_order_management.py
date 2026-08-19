@@ -91,6 +91,7 @@ async def test_details_resolves_reference_ordinal_and_latest() -> None:
     order, _, service = setup_orders()
     summary = OrderSummary(
         order_id=order.id,
+        public_order_number=order.public_order_number,
         status=order.status,
         created_at=order.created_at,
         item_count=1,
@@ -108,7 +109,8 @@ async def test_details_resolves_reference_ordinal_and_latest() -> None:
             input_for(session, order.conversation_id, data)
         )
         assert output.outcome.status == ExecutionStatus.SUCCESS
-        assert str(order.id) in output.outcome.protected_values
+        assert order.public_order_number in output.outcome.protected_values
+        assert str(order.id) not in output.outcome.protected_values
         assert order.phone_number in output.outcome.protected_values
 
 

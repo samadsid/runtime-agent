@@ -10,12 +10,14 @@ from uuid import UUID, uuid4
 import pytest
 
 from commerce.models import (
+    CartItem,
     CheckoutStage,
     CheckoutState,
     CommerceSession,
     PaymentAttempt,
     PaymentAttemptStatus,
     PaymentMethod,
+    Product,
 )
 from commerce.payments import PaymentProviderInvalidResponseError
 from infrastructure.payments import FakePaymentProvider
@@ -26,7 +28,7 @@ from runtime.capabilities.select_payment_method import SelectPaymentMethodCapabi
 
 def ready_checkout() -> CheckoutState:
     return CheckoutState(
-        stage=CheckoutStage.READY_TO_CONFIRM,
+        stage=CheckoutStage.SELECTING_PAYMENT_METHOD,
         source_cart_id=uuid4(),
         source_cart_version=3,
         customer_name="Samad",
@@ -39,7 +41,17 @@ def ready_checkout() -> CheckoutState:
 @pytest.mark.asyncio
 async def test_payment_method_selection_is_closed_and_explicit() -> None:
     capability = SelectPaymentMethodCapability()
-    session = CommerceSession(checkout=ready_checkout())
+    session = CommerceSession(
+        checkout=ready_checkout(),
+        cart_items=(
+            CartItem(
+                product=Product(
+                    id=uuid4(), name="Chicken", price=Decimal(100), unit="kg"
+                ),
+                quantity=Decimal(1),
+            ),
+        ),
+    )
 
     selected = await capability.execute(
         CapabilityInput(
@@ -50,7 +62,9 @@ async def test_payment_method_selection_is_closed_and_explicit() -> None:
     )
 
     assert selected.session.checkout.payment_method == PaymentMethod.ONLINE
-    assert selected.outcome.fragments[0].id == "payment-method-selected"
+    assert "payment-method-selected" in {
+        fragment.id for fragment in selected.outcome.fragments
+    }
 
 
 @pytest.mark.asyncio

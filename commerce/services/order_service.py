@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from commerce.models import ConfirmedOrderResult, Order
 from commerce.repositories import OrderConfirmationPersistenceError, OrderRepository
+
+logger = logging.getLogger(__name__)
 
 
 class OrderService:
@@ -33,6 +36,10 @@ class OrderService:
         except OrderConfirmationPersistenceError:
             raise
         except Exception as error:
+            logger.exception(
+                "Confirmed-order persistence failed.",
+                extra={"event": "order_confirmation_persistence_failure"},
+            )
             raise OrderConfirmationPersistenceError(
                 "Could not confirm the order."
             ) from error

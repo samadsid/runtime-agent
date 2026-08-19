@@ -10,6 +10,7 @@ from commerce.models import (
     CommerceSession,
     OrderConfirmed,
     OrderStatus,
+    PaymentMethod,
     Product,
     StockShortage,
     StockUnavailable,
@@ -63,7 +64,7 @@ async def test_checkout_reviews_persisted_cart_then_advances_to_details() -> Non
     assert review.session.checkout.stage == CheckoutStage.REVIEWING_CART
     assert review.session.checkout.source_cart_id is not None
     assert "Chicken Breast" in review.outcome.fragments[1].text
-    assert "₹320.00" in review.outcome.fragments[1].text
+    assert "₹320" in review.outcome.fragments[1].text
     assert proceed.session.checkout.stage == CheckoutStage.COLLECTING_DETAILS
     assert proceed.outcome.follow_up is not None
     assert proceed.outcome.follow_up.id == "request-delivery-details"
@@ -99,7 +100,7 @@ async def test_delivery_details_ask_only_for_next_missing_field() -> None:
     assert addressed.session.checkout.stage == CheckoutStage.READY_TO_CONFIRM
     assert addressed.session.checkout.delivery_address == "12 Market Road"
     assert addressed.outcome.follow_up is not None
-    assert addressed.outcome.follow_up.id == "confirm-order"
+    assert addressed.outcome.follow_up.id == "confirm-order-placement"
 
 
 @pytest.mark.asyncio
@@ -125,7 +126,7 @@ async def test_delivery_details_accept_all_fields_in_one_reply() -> None:
 
     assert output.session.checkout.stage == CheckoutStage.READY_TO_CONFIRM
     assert output.outcome.follow_up is not None
-    assert output.outcome.follow_up.id == "confirm-order"
+    assert output.outcome.follow_up.id == "confirm-order-placement"
 
 
 @pytest.mark.asyncio
@@ -169,7 +170,8 @@ async def test_confirmation_clears_unavailable_checkout_cart() -> None:
             source_cart_version=0,
             customer_name="Samad",
             phone_number="9876543210",
-            delivery_address="12 Market Road",
+                delivery_address="12 Market Road",
+                payment_method=PaymentMethod.CASH_ON_DELIVERY,
         )
     )
 
@@ -197,7 +199,8 @@ async def test_confirmation_snapshots_cart_closes_it_and_is_idempotent() -> None
             source_cart_version=cart.version,
             customer_name="Samad",
             phone_number="9876543210",
-            delivery_address="12 Market Road",
+                delivery_address="12 Market Road",
+                payment_method=PaymentMethod.CASH_ON_DELIVERY,
         ),
     )
 
@@ -250,7 +253,8 @@ async def test_confirmation_reports_only_grounded_stock_shortages() -> None:
             source_cart_version=0,
             customer_name="Samad",
             phone_number="9876543210",
-            delivery_address="12 Market Road",
+                delivery_address="12 Market Road",
+                payment_method=PaymentMethod.CASH_ON_DELIVERY,
         )
     )
     capability = ConfirmOrderCapability(InsufficientService())  # type: ignore[arg-type]
@@ -296,5 +300,5 @@ async def test_get_order_status_returns_latest_persisted_status() -> None:
     )
 
     assert output.outcome.status == ExecutionStatus.SUCCESS
-    assert str(order.order.id) in output.outcome.fragments[0].text
+    assert order.order.public_order_number in output.outcome.fragments[0].text
     assert OrderStatus.CONFIRMED.value in output.outcome.fragments[0].text

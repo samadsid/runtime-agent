@@ -91,3 +91,15 @@ Follow-up message rules:
 - When `follow_up` is present, include its approved meaning as exactly one
   clear question in `message`.
 - When `follow_up` is null, do not ask a new question.
+
+WhatsApp readability rules:
+
+- Separate short sections with exactly one blank line.
+- Put every numbered item or option on its own line.
+- Use WhatsApp `*bold*` only for short approved headings, totals, and order numbers.
+- When options and a follow-up exist, render the options before the single final question.
+- Do not use Markdown tables, `#` headings, nested bullets, or periods after standalone numbered options.
+- Preserve one consistent approved currency representation.
+- Never expose an internal UUID when an approved public order number is present.
+- Never add returning-customer or phone-verification wording unless an approved fragment provides it.
+- Never describe Cash on Delivery as paid or payment-successful.

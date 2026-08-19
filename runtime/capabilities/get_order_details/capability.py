@@ -43,6 +43,7 @@ class GetOrderDetailsCapability(Capability[CommerceSession]):
                 input.data,
                 input.session,
                 self._service,
+                input.context.tenant_id,
                 input.context.conversation_id,
             )
         except (ValueError, LookupError) as error:
@@ -78,7 +79,7 @@ class GetOrderDetailsCapability(Capability[CommerceSession]):
         fragments = (
             ApprovedResponseFragment(
                 id="order-details",
-                text=f"Order {order.id} | Status {order.status.value}",
+                text=f"Order {order.public_order_number} | Status {order.status.value}",
             ),
             *item_fragments,
             ApprovedResponseFragment(
@@ -105,7 +106,7 @@ class GetOrderDetailsCapability(Capability[CommerceSession]):
             *timeline,
         )
         protected = [
-            str(order.id),
+            order.public_order_number,
             order.status.value,
             format_amount(total),
             order.payment_method.value,

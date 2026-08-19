@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, StrictBool, ValidationError
 
-from commerce.models import CheckoutStage, CommerceSession
-from commerce.services import SavedDeliveryDetailsService
+from commerce.models import CommerceSession, PaymentMethod
+from commerce.services import (
+    ConfiguredPaymentMethodPolicy,
+    PaymentMethodPolicy,
+    SavedDeliveryDetailsService,
+)
 from runtime.capabilities import (
     Capability,
     CapabilityInput,
@@ -12,7 +16,7 @@ from runtime.capabilities import (
     CapabilityOutput,
 )
 from runtime.capabilities.checkout_support import (
-    confirmation_review_outcome,
+    advance_to_payment,
     missing_detail_outcome,
     next_missing_detail,
 )
@@ -31,8 +35,15 @@ class ConfirmSavedProfileUseArguments(BaseModel):
 
 
 class ConfirmSavedProfileUseCapability(Capability[CommerceSession]):
-    def __init__(self, service: SavedDeliveryDetailsService) -> None:
+    def __init__(
+        self,
+        service: SavedDeliveryDetailsService,
+        payment_policy: PaymentMethodPolicy | None = None,
+    ) -> None:
         self._service = service
+        self._payment_policy = payment_policy or ConfiguredPaymentMethodPolicy(
+            (PaymentMethod.CASH_ON_DELIVERY,), online_operational=False
+        )
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -79,14 +90,14 @@ class ConfirmSavedProfileUseCapability(Capability[CommerceSession]):
                 )
             )
             if complete:
-                checkout = checkout.model_copy(
-                    update={"stage": CheckoutStage.READY_TO_CONFIRM}
+                checkout, outcome = await advance_to_payment(
+                    checkout,
+                    input.session.cart_items,
+                    input.context.tenant_id,
+                    self._payment_policy,
                 )
                 session = input.session.model_copy(update={"checkout": checkout})
-                return CapabilityOutput(
-                    session=session,
-                    outcome=confirmation_review_outcome(checkout),
-                )
+                return CapabilityOutput(session=session, outcome=outcome)
             missing = next_missing_detail(checkout)
             if missing is not None:
                 return CapabilityOutput(
@@ -147,19 +158,13 @@ class ConfirmSavedProfileUseCapability(Capability[CommerceSession]):
                 checkout.delivery_address,
             )
         ):
-            checkout = checkout.model_copy(
-                update={"stage": CheckoutStage.READY_TO_CONFIRM}
+            checkout, outcome = await advance_to_payment(
+                checkout,
+                session.cart_items,
+                input.context.tenant_id,
+                self._payment_policy,
             )
+        else:
+            outcome = missing_detail_outcome(checkout)
         session = session.model_copy(update={"checkout": checkout})
-        outcome = (
-            confirmation_review_outcome(checkout)
-            if all(
-                (
-                    checkout.customer_name,
-                    checkout.phone_number,
-                    checkout.delivery_address,
-                )
-            )
-            else missing_detail_outcome(checkout)
-        )
         return CapabilityOutput(session=session, outcome=outcome)

@@ -33,6 +33,8 @@ def make_order(status: OrderStatus = OrderStatus.CONFIRMED) -> Order:
     order_id = uuid4()
     return Order(
         id=order_id,
+        tenant_id=uuid4(),
+        public_order_number="MU-260818-0001",
         source_cart_id=uuid4(),
         conversation_id=uuid4(),
         status=status,

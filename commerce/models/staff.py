@@ -57,7 +57,7 @@ class StaffOrderFilters(BaseModel):
     status: str | None = None
     created_from: datetime | None = None
     created_to: datetime | None = None
-    order_reference: UUID | None = None
+    order_reference: str | None = None
 
 
 class StaffOrderListItem(BaseModel):

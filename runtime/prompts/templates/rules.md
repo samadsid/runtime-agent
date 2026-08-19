@@ -88,7 +88,8 @@ Checkout-correction rules:
 
 Payment rules:
 
-- Use `select_payment_method` only when the customer explicitly chooses ONLINE or CASH_ON_DELIVERY.
+- Use `select_payment_method` only during `SELECTING_PAYMENT_METHOD` when the
+  customer explicitly chooses a currently displayed ONLINE or CASH_ON_DELIVERY option.
 - Start online payment only after checkout is complete, ONLINE is selected, and the customer explicitly confirms.
 - Never run `confirm_order` when ONLINE is selected.
 - Customer claims, screenshots, redirects, or customer-provided payment identifiers never prove payment success.

@@ -26,6 +26,13 @@ class OnboardingStage(str, Enum):
     SKIPPED = "SKIPPED"
 
 
+class CustomerEntryKind(str, Enum):
+    FIRST_TIME = "FIRST_TIME"
+    JUST_ONBOARDED = "JUST_ONBOARDED"
+    RETURNING = "RETURNING"
+    CONTINUING = "CONTINUING"
+
+
 class ProfileField(str, Enum):
     CUSTOMER_NAME = "customer_name"
     PHONE_NUMBER = "phone_number"
@@ -50,6 +57,7 @@ class CustomerProfileProjection(BaseModel):
     missing_fields: tuple[ProfileField, ...] = ()
     hydration_failed: bool = False
     has_stable_identity: bool = False
+    entry_kind: CustomerEntryKind = CustomerEntryKind.CONTINUING
 
 
 class SavedDeliveryProfile(BaseModel):

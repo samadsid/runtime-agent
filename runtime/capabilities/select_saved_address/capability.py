@@ -2,8 +2,17 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from commerce.models import CheckoutStage, CommerceSession, PendingSavedProfileUse
-from commerce.services import SavedDeliveryDetailsService
+from commerce.models import (
+    CheckoutStage,
+    CommerceSession,
+    PaymentMethod,
+    PendingSavedProfileUse,
+)
+from commerce.services import (
+    ConfiguredPaymentMethodPolicy,
+    PaymentMethodPolicy,
+    SavedDeliveryDetailsService,
+)
 from runtime.capabilities import (
     Capability,
     CapabilityInput,
@@ -12,7 +21,7 @@ from runtime.capabilities import (
     CapabilityOutput,
 )
 from runtime.capabilities.checkout_support import (
-    confirmation_review_outcome,
+    advance_to_payment,
     missing_detail_outcome,
 )
 from runtime.capabilities.saved_delivery_support import (
@@ -34,8 +43,15 @@ class SelectSavedAddressArguments(BaseModel):
 
 
 class SelectSavedAddressCapability(Capability[CommerceSession]):
-    def __init__(self, service: SavedDeliveryDetailsService) -> None:
+    def __init__(
+        self,
+        service: SavedDeliveryDetailsService,
+        payment_policy: PaymentMethodPolicy | None = None,
+    ) -> None:
         self._service = service
+        self._payment_policy = payment_policy or ConfiguredPaymentMethodPolicy(
+            (PaymentMethod.CASH_ON_DELIVERY,), online_operational=False
+        )
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -144,21 +160,15 @@ class SelectSavedAddressCapability(Capability[CommerceSession]):
                 checkout.delivery_address,
             )
         ):
-            checkout = checkout.model_copy(
-                update={"stage": CheckoutStage.READY_TO_CONFIRM}
+            checkout, outcome = await advance_to_payment(
+                checkout,
+                session.cart_items,
+                input.context.tenant_id,
+                self._payment_policy,
             )
             session = session.model_copy(update={"checkout": checkout})
-        outcome = (
-            confirmation_review_outcome(checkout)
-            if all(
-                (
-                    checkout.customer_name,
-                    checkout.phone_number,
-                    checkout.delivery_address,
-                )
-            )
-            else missing_detail_outcome(checkout)
-        )
+        else:
+            outcome = missing_detail_outcome(checkout)
         return CapabilityOutput(session=session, outcome=outcome)
 
     @staticmethod

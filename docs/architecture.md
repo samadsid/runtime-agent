@@ -374,3 +374,13 @@ provider call. Verified provider events are the only path to `CONFIRMED`.
 PostgreSQL owns orders, attempts, webhook idempotency, reservations, and fake
 provider records. A lifespan reconciliation loop uses bounded `SKIP LOCKED`
 claims and the same event transition service as webhooks.
+
+Checkout payment availability is resolved through a framework-independent policy
+before final review and revalidated before mutation. A single eligible method is
+selected and disclosed deterministically; multiple operational methods use the
+existing typed selection capability and checkpointed checkout stage.
+
+Orders retain UUID primary keys for internal relationships and also carry an
+immutable tenant-scoped public order number allocated from PostgreSQL in the order
+transaction. Customer messages, notifications, and staff presentation use the
+public number; authorization never relies on possession of that reference.

@@ -9,6 +9,7 @@ from commerce.models import (
     CheckoutState,
     CommerceSession,
     DeliveryDetailField,
+    PaymentMethod,
     Product,
 )
 from commerce.services import CartService, NonEmptyPhoneValidationPolicy, OrderService
@@ -51,6 +52,7 @@ def checkout_fixture() -> tuple[
             customer_name="Samad",
             phone_number="9876543210",
             delivery_address="Old Address",
+            payment_method=PaymentMethod.CASH_ON_DELIVERY,
         ),
     )
     capability = UpdateDeliveryDetailsCapability(
@@ -92,7 +94,7 @@ async def test_named_correction_survives_turn_then_updates_pending_field() -> No
     assert corrected.session.checkout.delivery_address == "B-68 New Zafrabad Delhi"
     assert corrected.session.checkout.stage == CheckoutStage.READY_TO_CONFIRM
     assert corrected.outcome.follow_up is not None
-    assert corrected.outcome.follow_up.id == "confirm-corrected-order"
+    assert corrected.outcome.follow_up.id == "confirm-order-placement"
     assert any(
         "Chicken Breast" in fragment.text for fragment in corrected.outcome.fragments
     )
@@ -232,7 +234,7 @@ def test_corrected_review_fallback_preserves_all_protected_values() -> None:
     )
 
     assert outcome.follow_up is not None
-    assert outcome.follow_up.id == "confirm-corrected-order"
+    assert outcome.follow_up.id == "confirm-order-placement"
     assert all(value in message for value in outcome.protected_values)
 
 

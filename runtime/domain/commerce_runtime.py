@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from commerce.models import CustomerProfileProjection
+from commerce.models import CustomerEntryKind, CustomerProfileProjection
 from commerce.repositories import SavedDeliveryPersistenceError
 from commerce.services import SavedDeliveryDetailsService
 from runtime.contracts import ConversationState, CustomerChannelContext
@@ -40,7 +40,14 @@ class CommerceRuntime:
             projection = CustomerProfileProjection(hydration_failed=True)
         projection = projection.model_copy(
             update={
-                "has_stable_identity": customer_context.channel_customer_id is not None
+                "has_stable_identity": customer_context.channel_customer_id is not None,
+                "entry_kind": (
+                    CustomerEntryKind.FIRST_TIME
+                    if not projection.onboarding_completed
+                    else CustomerEntryKind.RETURNING
+                    if customer_context.conversation_entry
+                    else CustomerEntryKind.CONTINUING
+                ),
             }
         )
         graph_state = graph_state.model_copy(

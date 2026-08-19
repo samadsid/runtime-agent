@@ -671,3 +671,22 @@ single startup selector prevents both transports from accepting new traffic.
 Provider-specific signatures, credentials, payloads, and errors remain outside
 commerce and LangGraph. A cutover leaves WhatsApp workers not-ready until unresolved
 old-provider work is explicitly drained or dispositioned.
+
+---
+
+## ADR-035
+
+Use policy-driven checkout payment stages and PostgreSQL public order numbers.
+
+Status
+
+Accepted
+
+Reason
+
+Checkout must disclose an operational payment method before explicit order
+confirmation without moving policy into the planner or response LLM. A typed policy
+therefore advances completed delivery details either to payment selection or directly
+to a complete final review. Orders retain UUID identity internally while a PostgreSQL
+sequence, configured prefix, and business-local creation date produce immutable,
+tenant-scoped public references shared by chat, notifications, and staff surfaces.

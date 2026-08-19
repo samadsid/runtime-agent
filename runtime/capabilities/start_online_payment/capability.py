@@ -146,5 +146,6 @@ class StartOnlinePaymentCapability(Capability[CommerceSession]):
             }
         )
         return CapabilityOutput(
-            session=session, outcome=payment_outcome(result.attempt)
+            session=session,
+            outcome=payment_outcome(result.attempt, result.order.public_order_number),
         )

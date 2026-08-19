@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from commerce.models import CheckoutStage, CommerceSession
-from commerce.services import PhoneValidationPolicy
+from commerce.models import CheckoutStage, CommerceSession, PaymentMethod
+from commerce.services import (
+    ConfiguredPaymentMethodPolicy,
+    PaymentMethodPolicy,
+    PhoneValidationPolicy,
+)
 from runtime.capabilities import (
     Capability,
     CapabilityInput,
@@ -13,7 +17,7 @@ from runtime.capabilities import (
 )
 from runtime.capabilities.checkout_support import (
     NonEmptyText,
-    confirmation_review_outcome,
+    advance_to_payment,
     missing_detail_outcome,
     next_missing_detail,
 )
@@ -34,8 +38,15 @@ class DeliveryDetailsArguments(BaseModel):
 
 
 class CollectDeliveryDetailsCapability(Capability[CommerceSession]):
-    def __init__(self, phone_policy: PhoneValidationPolicy) -> None:
+    def __init__(
+        self,
+        phone_policy: PhoneValidationPolicy,
+        payment_policy: PaymentMethodPolicy | None = None,
+    ) -> None:
         self._phone_policy = phone_policy
+        self._payment_policy = payment_policy or ConfiguredPaymentMethodPolicy(
+            (PaymentMethod.CASH_ON_DELIVERY,), online_operational=False
+        )
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -99,10 +110,12 @@ class CollectDeliveryDetailsCapability(Capability[CommerceSession]):
         checkout = checkout.model_copy(update=updates)
         missing = next_missing_detail(checkout)
         if missing is None:
-            checkout = checkout.model_copy(
-                update={"stage": CheckoutStage.READY_TO_CONFIRM}
+            checkout, outcome = await advance_to_payment(
+                checkout,
+                input.session.cart_items,
+                input.context.tenant_id,
+                self._payment_policy,
             )
-            outcome = confirmation_review_outcome(checkout)
         else:
             checkout = checkout.model_copy(
                 update={"stage": CheckoutStage.COLLECTING_DETAILS}

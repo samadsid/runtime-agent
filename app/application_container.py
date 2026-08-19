@@ -21,6 +21,7 @@ from commerce.services import (
     CartService,
     CatalogBrowsePolicy,
     CatalogBrowseService,
+    ConfiguredPaymentMethodPolicy,
     CustomerOrderService,
     DirectCartService,
     FulfilmentService,
@@ -212,6 +213,7 @@ class ApplicationContainer:
         Start application infrastructure.
         """
         self.settings.validate_payment_configuration()
+        self.settings.validate_order_number_configuration()
         self.settings.validate_whatsapp_configuration()
         self.settings.validate_notification_configuration()
         self.settings.validate_web_chat_configuration()
@@ -229,8 +231,8 @@ class ApplicationContainer:
                 )
             self._start_notification_worker()
             self._start_channel_workers()
-            self.payment_reconciliation_job.start()
-            self.inventory_reconciliation_job.start()
+            # self.payment_reconciliation_job.start()
+            # self.inventory_reconciliation_job.start()
         except Exception:
             if self.channel_inbound_processor is not None:
                 await self.channel_inbound_processor.stop()
@@ -406,8 +408,14 @@ class ApplicationContainer:
         )
         self.order_repository = PostgresOrderRepository(
             pool=self.database_pool,
+            public_order_prefix=self.settings.PUBLIC_ORDER_NUMBER_PREFIX,
+            business_timezone=self.settings.BUSINESS_TIMEZONE,
         )
-        self.payment_repository = PostgresPaymentRepository(pool=self.database_pool)
+        self.payment_repository = PostgresPaymentRepository(
+            pool=self.database_pool,
+            public_order_prefix=self.settings.PUBLIC_ORDER_NUMBER_PREFIX,
+            business_timezone=self.settings.BUSINESS_TIMEZONE,
+        )
         self.inventory_repository = PostgresInventoryRepository(
             pool=self.database_pool,
         )
@@ -429,6 +437,10 @@ class ApplicationContainer:
         )
 
         self.cart_service = CartService(repository=self.cart_repository)
+        self.payment_method_policy = ConfiguredPaymentMethodPolicy(
+            tuple(self.settings.CHECKOUT_ENABLED_PAYMENT_METHODS),
+            online_operational=self.settings.APP_ENV != "production",
+        )
         self.direct_cart_service = DirectCartService(
             self.product_repository, self.cart_repository
         )
@@ -557,17 +569,21 @@ class ApplicationContainer:
         self.checkout_capability = CheckoutCapability(
             service=self.cart_service,
             saved_details_service=self.saved_delivery_details_service,
+            payment_policy=self.payment_method_policy,
         )
         self.collect_delivery_details_capability = CollectDeliveryDetailsCapability(
             phone_policy=self.phone_validation_policy,
+            payment_policy=self.payment_method_policy,
         )
         self.update_delivery_details_capability = UpdateDeliveryDetailsCapability(
             cart_service=self.cart_service,
             phone_policy=self.phone_validation_policy,
+            payment_policy=self.payment_method_policy,
         )
         self.abandon_checkout_capability = AbandonCheckoutCapability()
         self.confirm_order_capability = ConfirmOrderCapability(
             service=self.order_service,
+            payment_policy=self.payment_method_policy,
         )
         self.get_order_status_capability = GetOrderStatusCapability(
             service=self.order_service,
@@ -589,7 +605,7 @@ class ApplicationContainer:
             ViewSavedDeliveryProfileCapability(self.saved_delivery_details_service)
         )
         self.select_saved_address_capability = SelectSavedAddressCapability(
-            self.saved_delivery_details_service
+            self.saved_delivery_details_service, self.payment_method_policy
         )
         self.save_delivery_details_capability = SaveDeliveryDetailsCapability(
             self.saved_delivery_details_service
@@ -598,7 +614,7 @@ class ApplicationContainer:
             ConfirmSaveDeliveryDetailsCapability(self.saved_delivery_details_service)
         )
         self.confirm_saved_profile_use_capability = ConfirmSavedProfileUseCapability(
-            self.saved_delivery_details_service
+            self.saved_delivery_details_service, self.payment_method_policy
         )
         self.update_saved_address_capability = UpdateSavedAddressCapability(
             self.saved_delivery_details_service
@@ -609,7 +625,9 @@ class ApplicationContainer:
         self.set_default_address_capability = SetDefaultAddressCapability(
             self.saved_delivery_details_service
         )
-        self.select_payment_method_capability = SelectPaymentMethodCapability()
+        self.select_payment_method_capability = SelectPaymentMethodCapability(
+            self.payment_method_policy
+        )
         self.start_online_payment_capability = StartOnlinePaymentCapability(
             self.payment_service
         )
@@ -748,6 +766,7 @@ class ApplicationContainer:
             runtime=self.runtime,
             sender_id=self.whatsapp_sender_id,
             response_generator=self.response_generator,
+            returning_inactivity_hours=self.settings.CUSTOMER_RETURNING_INACTIVITY_HOURS,
             **common,
         )
         self.channel_outbound_dispatcher = ChannelOutboundDispatcher(

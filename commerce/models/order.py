@@ -56,6 +56,8 @@ class Order(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: UUID
+    tenant_id: UUID
+    public_order_number: str = Field(min_length=1, max_length=32)
     source_cart_id: UUID
     conversation_id: UUID
     status: OrderStatus

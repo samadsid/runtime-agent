@@ -20,6 +20,11 @@ from .notification_templates import (
 )
 from .order_service import OrderService
 from .payment_event_service import PaymentEventService
+from .payment_method_policy import (
+    ConfiguredPaymentMethodPolicy,
+    EligiblePaymentMethod,
+    PaymentMethodPolicy,
+)
 from .payment_service import PaymentService
 from .phone_validation import NonEmptyPhoneValidationPolicy, PhoneValidationPolicy
 from .saved_delivery_details_service import (
@@ -35,10 +40,12 @@ __all__ = [
     "CatalogBrowseResult",
     "CatalogBrowseResultKind",
     "CatalogBrowseService",
+    "ConfiguredPaymentMethodPolicy",
     "CustomerOrderService",
     "DirectCartService",
     "DirectCartServiceError",
     "DirectProductQueryPolicy",
+    "EligiblePaymentMethod",
     "FulfilmentService",
     "GuestSavedDeliveryDetailsError",
     "InvalidSavedDeliveryDetailsError",
@@ -47,6 +54,7 @@ __all__ = [
     "NotificationTemplateRegistry",
     "OrderService",
     "PaymentEventService",
+    "PaymentMethodPolicy",
     "PaymentService",
     "PhoneValidationPolicy",
     "ProductResolutionPolicy",

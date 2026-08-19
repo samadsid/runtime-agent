@@ -42,6 +42,11 @@ class OrderRepository(ABC):
     ) -> Order | None: ...
 
     @abstractmethod
+    async def get_for_conversation_by_public_number(
+        self, tenant_id: UUID, conversation_id: UUID, public_order_number: str
+    ) -> Order | None: ...
+
+    @abstractmethod
     async def get_latest_for_conversation(
         self, conversation_id: UUID
     ) -> Order | None: ...

@@ -32,17 +32,17 @@ class PostgresStaffOrderRepository:
         cursor: tuple[datetime, UUID] | None,
     ) -> tuple[StaffOrderListItem, ...]:
         rows = await self._pool.pool.fetch(
-            """SELECT o.id,o.status,o.payment_method,o.customer_name,o.phone_number,
+            """SELECT o.id,o.public_order_number,o.status,o.payment_method,o.customer_name,o.phone_number,
                       o.created_at,o.updated_at,o.version,
                       COALESCE(SUM(i.unit_price*i.quantity),0) total,
                       COALESCE(MIN(i.currency),'INR') currency
                FROM orders o
-               JOIN carts c ON c.id=o.source_cart_id AND c.tenant_id=$1
                LEFT JOIN order_items i ON i.order_id=o.id
-               WHERE ($2::text IS NULL OR o.status=$2)
+               WHERE o.tenant_id=$1
+                 AND ($2::text IS NULL OR o.status=$2)
                  AND ($3::timestamptz IS NULL OR o.created_at >= $3)
                  AND ($4::timestamptz IS NULL OR o.created_at <= $4)
-                 AND ($5::uuid IS NULL OR o.id=$5)
+                 AND ($5::text IS NULL OR o.public_order_number=$5)
                  AND ($6::timestamptz IS NULL OR (o.created_at,o.id) < ($6,$7))
                GROUP BY o.id
                ORDER BY o.created_at DESC,o.id DESC LIMIT $8""",
@@ -52,7 +52,7 @@ class PostgresStaffOrderRepository:
         )
         return tuple(
             StaffOrderListItem(
-                order_id=row["id"], order_reference=str(row["id"]), status=row["status"],
+                order_id=row["id"], order_reference=row["public_order_number"], status=row["status"],
                 payment_method=row["payment_method"], total=row["total"],
                 currency=row["currency"], customer_name=row["customer_name"],
                 masked_phone_number=mask_phone(row["phone_number"]),
@@ -66,9 +66,9 @@ class PostgresStaffOrderRepository:
             found = await connection.fetchrow(
                 """SELECT o.id,COALESCE(SUM(i.unit_price*i.quantity),0) total,
                           COALESCE(MIN(i.currency),'INR') currency
-                   FROM orders o JOIN carts c ON c.id=o.source_cart_id AND c.tenant_id=$1
+                   FROM orders o
                    LEFT JOIN order_items i ON i.order_id=o.id
-                   WHERE o.id=$2 GROUP BY o.id""",
+                   WHERE o.tenant_id=$1 AND o.id=$2 GROUP BY o.id""",
                 tenant_id, order_id,
             )
             if found is None:
@@ -84,7 +84,7 @@ class PostgresStaffOrderRepository:
             assert order is not None
             return StaffOrderDetails(
                 order_id=order.id,
-                order_reference=str(order.id),
+                order_reference=order.public_order_number,
                 status=order.status.value,
                 payment_method=order.payment_method.value,
                 customer_name=order.customer_name,
@@ -123,8 +123,8 @@ class PostgresStaffOrderRepository:
     async def dashboard_counts(self, tenant_id: UUID) -> StaffDashboardCounts:
         rows = await self._pool.pool.fetch(
             """SELECT o.status,COUNT(*) AS count
-               FROM orders o JOIN carts c ON c.id=o.source_cart_id AND c.tenant_id=$1
-               WHERE o.status = ANY($2::text[])
+               FROM orders o
+               WHERE o.tenant_id=$1 AND o.status = ANY($2::text[])
                GROUP BY o.status""",
             tenant_id, ["CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY"],
         )
@@ -139,21 +139,20 @@ class PostgresStaffOrderRepository:
         self, tenant_id: UUID, limit: int = 5
     ) -> tuple[StaffOrderListItem, ...]:
         rows = await self._pool.pool.fetch(
-            """SELECT o.id,o.status,o.payment_method,o.customer_name,o.phone_number,
+            """SELECT o.id,o.public_order_number,o.status,o.payment_method,o.customer_name,o.phone_number,
                       o.created_at,o.updated_at,o.version,
                       COALESCE(SUM(i.unit_price*i.quantity),0) total,
                       COALESCE(MIN(i.currency),'INR') currency
                FROM orders o
-               JOIN carts c ON c.id=o.source_cart_id AND c.tenant_id=$1
                LEFT JOIN order_items i ON i.order_id=o.id
-               WHERE o.status='CONFIRMED'
+               WHERE o.tenant_id=$1 AND o.status='CONFIRMED'
                GROUP BY o.id
                ORDER BY o.created_at ASC,o.id ASC LIMIT $2""",
             tenant_id, limit,
         )
         return tuple(
             StaffOrderListItem(
-                order_id=row["id"], order_reference=str(row["id"]), status=row["status"],
+                order_id=row["id"], order_reference=row["public_order_number"], status=row["status"],
                 payment_method=row["payment_method"], total=row["total"],
                 currency=row["currency"], customer_name=row["customer_name"],
                 masked_phone_number=mask_phone(row["phone_number"]),

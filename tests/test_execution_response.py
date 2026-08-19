@@ -151,6 +151,32 @@ async def test_generator_rejects_altered_protected_values_and_falls_back() -> No
 
 
 @pytest.mark.asyncio
+async def test_bold_validation_ignores_asterisks_in_protected_phone_mask() -> None:
+    masked_phone = "*********3210"
+    outcome = GeneratedExecutionOutcome(
+        status=ExecutionStatus.SUCCESS,
+        fragments=(
+            ApprovedResponseFragment(
+                id="delivery-review", text=f"Phone: {masked_phone}"
+            ),
+        ),
+        protected_values=(masked_phone,),
+    )
+    composed = f"*Delivery*\nPhone: {masked_phone}"
+    provider = StubLLMProvider(
+        result=ResponseComposition(
+            layout=ResponseLayout.PARAGRAPH,
+            fragment_ids=("delivery-review",),
+            message=composed,
+        )
+    )
+
+    message = await response_generator(provider).generate(outcome, "details dikhao")
+
+    assert message == composed
+
+
+@pytest.mark.asyncio
 async def test_composition_failure_does_not_log_protected_delivery_values(
     caplog,
 ) -> None:

@@ -2,7 +2,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from commerce.models import CommerceSession, OnboardingStage
+from commerce.models import CommerceSession, CustomerEntryKind, OnboardingStage
 from runtime.capabilities import CapabilityName, ExecutionContext
 from runtime.commands import ExecuteCapabilityCommand
 from runtime.contracts import (
@@ -135,7 +135,11 @@ class ExecuteNode:
                     else context.request_id
                 ),
                 profile=state.customer_profile_projection.model_copy(
-                    update={"profile_available": True, "onboarding_completed": True}
+                    update={
+                        "profile_available": True,
+                        "onboarding_completed": True,
+                        "entry_kind": CustomerEntryKind.JUST_ONBOARDED,
+                    }
                 ),
             )
             try:

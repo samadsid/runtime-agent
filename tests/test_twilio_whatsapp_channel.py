@@ -41,6 +41,9 @@ class FakeChannelRepository:
     async def fail_inbound(self, *args, **kwargs):
         self.failed.append((args, kwargs))
 
+    async def previous_inbound_at(self, conversation_id, *, exclude_id):
+        return None
+
 
 class FakeRuntime:
     def __init__(self) -> None:

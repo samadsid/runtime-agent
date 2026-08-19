@@ -7,9 +7,14 @@ from runtime.contracts import (
 )
 
 
-def payment_outcome(attempt: PaymentAttempt) -> GeneratedExecutionOutcome:
+def payment_outcome(
+    attempt: PaymentAttempt, order_reference: str | None = None
+) -> GeneratedExecutionOutcome:
     amount = format(attempt.amount, "f")
-    protected = [str(attempt.order_id), amount, attempt.currency, attempt.status.value]
+    subject = f"Order {order_reference}" if order_reference else "Your order"
+    protected = [amount, attempt.currency, attempt.status.value]
+    if order_reference:
+        protected.append(order_reference)
     if attempt.status == PaymentAttemptStatus.PENDING:
         if attempt.checkout_url:
             protected.append(attempt.checkout_url)
@@ -19,7 +24,7 @@ def payment_outcome(attempt: PaymentAttempt) -> GeneratedExecutionOutcome:
             fragments=(
                 ApprovedResponseFragment(
                     id="online-payment-ready",
-                    text=f"Order {attempt.order_id} is waiting for payment. Amount {amount} {attempt.currency}. Checkout URL: {attempt.checkout_url}. Expires {attempt.expires_at.isoformat()}.",
+                    text=f"{subject} is waiting for payment. Amount {amount} {attempt.currency}. Checkout URL: {attempt.checkout_url}. Expires {attempt.expires_at.isoformat()}.",
                 ),
             ),
             protected_values=tuple(protected),
@@ -30,7 +35,7 @@ def payment_outcome(attempt: PaymentAttempt) -> GeneratedExecutionOutcome:
             fragments=(
                 ApprovedResponseFragment(
                     id="payment-succeeded",
-                    text=f"Payment for order {attempt.order_id} succeeded and the order is confirmed.",
+                    text=f"Payment for {subject.lower()} succeeded and the order is confirmed.",
                 ),
             ),
             protected_values=tuple(protected),
@@ -41,7 +46,7 @@ def payment_outcome(attempt: PaymentAttempt) -> GeneratedExecutionOutcome:
             fragments=(
                 ApprovedResponseFragment(
                     id="payment-failed",
-                    text=f"Payment for order {attempt.order_id} failed.",
+                    text=f"Payment for {subject.lower()} failed.",
                 ),
             ),
             follow_up=FollowUpRequest(
@@ -56,7 +61,7 @@ def payment_outcome(attempt: PaymentAttempt) -> GeneratedExecutionOutcome:
             fragments=(
                 ApprovedResponseFragment(
                     id="payment-expired",
-                    text=f"Payment for order {attempt.order_id} expired.",
+                    text=f"Payment for {subject.lower()} expired.",
                 ),
             ),
             follow_up=FollowUpRequest(
@@ -70,7 +75,7 @@ def payment_outcome(attempt: PaymentAttempt) -> GeneratedExecutionOutcome:
         fragments=(
             ApprovedResponseFragment(
                 id="payment-temporarily-unavailable",
-                text=f"Payment status for order {attempt.order_id} is temporarily unavailable.",
+                text=f"Payment status for {subject.lower()} is temporarily unavailable.",
             ),
         ),
         follow_up=FollowUpRequest(

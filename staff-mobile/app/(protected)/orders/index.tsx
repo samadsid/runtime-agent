@@ -15,7 +15,7 @@ import { presentOrderStatus } from "@/features/presentation/status";
 import { queryKeys } from "@/query/query-keys";
 
 const operationalStatuses: OrderStatus[] = ["CONFIRMED", "PREPARING", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"];
-const uuidSchema = z.string().uuid();
+const publicOrderNumberSchema = z.string().regex(/^[A-Z0-9]{1,8}-[0-9]{6}-[0-9]{4,}$/);
 
 export default function OrdersScreen() {
   const theme = useTheme(); const router = useRouter(); const { horizontalPadding, compact } = useResponsiveLayout(); const params = useLocalSearchParams<{ status?: string }>();
@@ -25,9 +25,10 @@ export default function OrdersScreen() {
   const [createdFrom, setCreatedFrom] = useState(""); const [createdTo, setCreatedTo] = useState("");
   useEffect(() => { const timer = setTimeout(() => setDebouncedReference(reference.trim()), 350); return () => clearTimeout(timer); }, [reference]);
   useEffect(() => { if (initialStatus) setStatus(initialStatus); }, [initialStatus]);
-  const referenceError = debouncedReference && !uuidSchema.safeParse(debouncedReference).success ? "Enter the complete order reference." : undefined;
+  const normalizedReference = debouncedReference.toUpperCase();
+  const referenceError = normalizedReference && !publicOrderNumberSchema.safeParse(normalizedReference).success ? "Enter a complete order number, for example MU-260818-0042." : undefined;
   const dateRange = buildDateRange(createdFrom, createdTo);
-  const filters = useMemo<OrderFilters>(() => ({ status, orderReference: referenceError ? undefined : debouncedReference || undefined, createdFrom: dateRange.createdFrom, createdTo: dateRange.createdTo }), [status, debouncedReference, referenceError, dateRange.createdFrom, dateRange.createdTo]);
+  const filters = useMemo<OrderFilters>(() => ({ status, orderReference: referenceError ? undefined : normalizedReference || undefined, createdFrom: dateRange.createdFrom, createdTo: dateRange.createdTo }), [status, normalizedReference, referenceError, dateRange.createdFrom, dateRange.createdTo]);
   const query = useInfiniteQuery({ queryKey: queryKeys.orders(filters), queryFn: ({ pageParam, signal }) => staffApi.orders(filters, pageParam, signal), initialPageParam: undefined as string | undefined, getNextPageParam: (last) => last.next_cursor ?? undefined, enabled: !referenceError && !dateRange.error });
   const orders = useMemo(() => mergeOrderPages(query.data?.pages), [query.data]);
   const filtered = Boolean(status || reference || createdFrom || createdTo);

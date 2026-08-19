@@ -56,7 +56,11 @@ class CancelOrderCapability(Capability[CommerceSession]):
         )
         try:
             order = await resolve_order_target(
-                input.data, session, self._service, input.context.conversation_id
+                input.data,
+                session,
+                self._service,
+                input.context.tenant_id,
+                input.context.conversation_id,
             )
         except (ValueError, LookupError) as error:
             return CapabilityOutput(
@@ -66,12 +70,12 @@ class CancelOrderCapability(Capability[CommerceSession]):
         if order.status == OrderStatus.CANCELLED:
             return CapabilityOutput(
                 session=session,
-                outcome=self._cancelled_outcome(order.id, already=True),
+                outcome=self._cancelled_outcome(order.public_order_number, already=True),
             )
         if order.status != OrderStatus.CONFIRMED:
             return CapabilityOutput(
                 session=session,
-                outcome=self._denied_outcome(order.id, order.status),
+                outcome=self._denied_outcome(order.public_order_number, order.status),
             )
 
         total = sum(
@@ -93,7 +97,7 @@ class CancelOrderCapability(Capability[CommerceSession]):
                     ApprovedResponseFragment(
                         id="cancellation-review",
                         text=(
-                            f"Cancel Order {order.id} | Status {order.status.value} | "
+                            f"Cancel Order {order.public_order_number} | Status {order.status.value} | "
                             f"Items {len(order.items)} | Total {format_amount(total)}"
                         ),
                     ),
@@ -103,7 +107,7 @@ class CancelOrderCapability(Capability[CommerceSession]):
                     question="Do you explicitly confirm cancelling this order?",
                 ),
                 protected_values=(
-                    str(order.id),
+                    order.public_order_number,
                     order.status.value,
                     str(len(order.items)),
                     format_amount(total),
@@ -144,7 +148,7 @@ class CancelOrderCapability(Capability[CommerceSession]):
         except CustomerCancellationNotAllowedError as error:
             return CapabilityOutput(
                 session=input.session,
-                outcome=self._denied_outcome(pending.order_id, error.status),
+                outcome=self._denied_outcome(current.public_order_number, error.status),
             )
         except LookupError as error:
             return CapabilityOutput(
@@ -157,11 +161,11 @@ class CancelOrderCapability(Capability[CommerceSession]):
         )
         return CapabilityOutput(
             session=session,
-            outcome=self._cancelled_outcome(order.id, already=already),
+            outcome=self._cancelled_outcome(order.public_order_number, already=already),
         )
 
     def _denied_outcome(
-        self, order_id, status: OrderStatus
+        self, order_reference: str, status: OrderStatus
     ) -> GeneratedExecutionOutcome:
         return GeneratedExecutionOutcome(
             status=ExecutionStatus.FAILURE,
@@ -169,25 +173,25 @@ class CancelOrderCapability(Capability[CommerceSession]):
                 ApprovedResponseFragment(
                     id="cancellation-denied",
                     text=(
-                        f"Order {order_id} is {status.value}. Self-service cancellation "
+                        f"Order {order_reference} is {status.value}. Self-service cancellation "
                         f"is no longer available. Contact {self._support_path}."
                     ),
                 ),
             ),
-            protected_values=(str(order_id), status.value, self._support_path),
+            protected_values=(order_reference, status.value, self._support_path),
         )
 
     @staticmethod
-    def _cancelled_outcome(order_id, *, already: bool) -> GeneratedExecutionOutcome:
+    def _cancelled_outcome(order_reference: str, *, already: bool) -> GeneratedExecutionOutcome:
         text = (
-            f"Order {order_id} was already CANCELLED."
+            f"Order {order_reference} was already CANCELLED."
             if already
-            else f"Order {order_id} is CANCELLED and its inventory was released."
+            else f"Order {order_reference} is CANCELLED and its inventory was released."
         )
         return GeneratedExecutionOutcome(
             status=ExecutionStatus.SUCCESS,
             fragments=(
                 ApprovedResponseFragment(id="order-cancelled", text=text),
             ),
-            protected_values=(str(order_id), OrderStatus.CANCELLED.value),
+            protected_values=(order_reference, OrderStatus.CANCELLED.value),
         )

@@ -10,6 +10,7 @@ from commerce.models import (
     CheckoutStage,
     CheckoutState,
     CommerceSession,
+    PaymentMethod,
     Product,
     StockRecoveryAction,
     StockRecoveryOption,
@@ -95,6 +96,7 @@ def recovery_fixture(available: Decimal = Decimal(3)):
             phone_number="9876543210",
             delivery_address="12 Market Road",
             stock_recovery=recovery,
+            payment_method=PaymentMethod.CASH_ON_DELIVERY,
         ),
     )
     return chicken, repository, cart, session

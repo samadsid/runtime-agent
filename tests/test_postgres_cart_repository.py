@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from decimal import Decimal
 from uuid import uuid4
 
@@ -220,6 +221,11 @@ async def test_postgres_order_confirmation_is_idempotent_and_snapshots_cart() ->
         assert isinstance(first, OrderConfirmed)
         assert isinstance(retried, OrderConfirmed)
         assert first.order.id == retried.order.id
+        assert first.order.public_order_number == retried.order.public_order_number
+        assert first.order.tenant_id == tenant_id
+        assert re.fullmatch(
+            r"MU-[0-9]{6}-[0-9]{4,}", first.order.public_order_number
+        )
         balance = await pool.fetchrow(
             """
             SELECT on_hand_quantity, reserved_quantity

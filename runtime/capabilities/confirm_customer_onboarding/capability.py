@@ -115,7 +115,7 @@ class ConfirmCustomerOnboardingCapability(Capability[CommerceSession]):
                 fragments=(
                     ApprovedResponseFragment(
                         id="customer-profile-saved",
-                        text="Your delivery details were saved for future orders. The phone number remains unverified.",
+                        text="Your delivery details have been saved for future orders.",
                     ),
                 ),
                 follow_up=FollowUpRequest(

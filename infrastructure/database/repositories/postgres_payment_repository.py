@@ -20,6 +20,7 @@ from commerce.models import (
 )
 from commerce.repositories import PaymentRepository
 from infrastructure.database import DatabasePool
+from infrastructure.database.public_order_numbers import allocate_public_order_number
 
 from .postgres_notification_outbox_repository import (
     PostgresNotificationOutboxRepository,
@@ -28,8 +29,16 @@ from .postgres_order_repository import PostgresOrderRepository
 
 
 class PostgresPaymentRepository(PaymentRepository):
-    def __init__(self, pool: DatabasePool) -> None:
+    def __init__(
+        self,
+        pool: DatabasePool,
+        *,
+        public_order_prefix: str = "MU",
+        business_timezone: str = "Asia/Kolkata",
+    ) -> None:
         self._pool = pool
+        self._public_order_prefix = public_order_prefix
+        self._business_timezone = business_timezone
 
     async def create_provisional_order(
         self,
@@ -130,11 +139,18 @@ class PostgresPaymentRepository(PaymentRepository):
                     cart_id=cart_id, cart_version=cart["version"], shortages=shortages
                 )
             order_id, attempt_id = uuid4(), uuid4()
+            public_order_number = await allocate_public_order_number(
+                connection,
+                prefix=self._public_order_prefix,
+                business_timezone=self._business_timezone,
+            )
             await connection.execute(
-                """INSERT INTO orders (id,source_cart_id,conversation_id,status,payment_method,
+                """INSERT INTO orders (id,tenant_id,public_order_number,source_cart_id,conversation_id,status,payment_method,
                    customer_name,phone_number,delivery_address,created_at,confirmed_at)
-                   VALUES ($1,$2,$3,'AWAITING_PAYMENT','ONLINE',$4,$5,$6,now(),NULL)""",
+                   VALUES ($1,$2,$3,$4,$5,'AWAITING_PAYMENT','ONLINE',$6,$7,$8,now(),NULL)""",
                 order_id,
+                tenant_id,
+                public_order_number,
                 cart_id,
                 conversation_id,
                 customer_name,

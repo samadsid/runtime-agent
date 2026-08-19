@@ -68,5 +68,6 @@ class RetryOnlinePaymentCapability(Capability[CommerceSession]):
             )
         assert isinstance(result, OnlinePaymentReady)
         return CapabilityOutput(
-            session=input.session, outcome=payment_outcome(result.attempt)
+            session=input.session,
+            outcome=payment_outcome(result.attempt, result.order.public_order_number),
         )

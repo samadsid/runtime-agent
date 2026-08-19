@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import logging
+from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from commerce.models import (
+    Cart,
+    CartStatus,
     CheckoutStage,
     CheckoutState,
     CommerceSession,
@@ -18,7 +22,7 @@ from commerce.models import (
     StockUnavailable,
 )
 from commerce.repositories import OrderConfirmationPersistenceError
-from commerce.services import OrderService
+from commerce.services import OrderService, PaymentMethodPolicy
 from runtime.capabilities import (
     Capability,
     CapabilityInput,
@@ -26,7 +30,11 @@ from runtime.capabilities import (
     CapabilityName,
     CapabilityOutput,
 )
-from runtime.capabilities.checkout_support import payment_method_label
+from runtime.capabilities.checkout_support import (
+    advance_to_payment,
+    format_money,
+    payment_method_label,
+)
 from runtime.contracts import (
     ApprovedOption,
     ApprovedResponseFragment,
@@ -36,6 +44,8 @@ from runtime.contracts import (
     ResponseFragmentKind,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ConfirmOrderArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -44,8 +54,11 @@ class ConfirmOrderArguments(BaseModel):
 
 
 class ConfirmOrderCapability(Capability[CommerceSession]):
-    def __init__(self, service: OrderService) -> None:
+    def __init__(
+        self, service: OrderService, payment_policy: PaymentMethodPolicy | None = None
+    ) -> None:
         self._service = service
+        self._payment_policy = payment_policy
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -77,6 +90,40 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
         ):
             return self._not_ready(input.session)
 
+        if self._payment_policy is not None:
+            cart = Cart(
+                id=checkout.source_cart_id,
+                tenant_id=input.context.tenant_id,
+                conversation_id=input.context.conversation_id,
+                status=CartStatus.ACTIVE,
+                version=checkout.source_cart_version,
+                items=input.session.cart_items,
+            )
+            eligible = await self._payment_policy.eligible_methods(
+                input.context.tenant_id, cart
+            )
+            if checkout.payment_method not in {item.method for item in eligible}:
+                stale, outcome = await advance_to_payment(
+                    checkout.model_copy(update={"payment_method": None}),
+                    input.session.cart_items,
+                    input.context.tenant_id,
+                    self._payment_policy,
+                )
+                return CapabilityOutput(
+                    session=input.session.model_copy(update={"checkout": stale}),
+                    outcome=outcome.model_copy(
+                        update={
+                            "fragments": (
+                                ApprovedResponseFragment(
+                                    id="payment-method-no-longer-available",
+                                    text="The selected payment method is no longer available.",
+                                ),
+                            )
+                            + outcome.fragments
+                        }
+                    ),
+                )
+
         try:
             result = await self._service.create_confirmed_order_from_cart(
                 tenant_id=input.context.tenant_id,
@@ -88,6 +135,10 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
                 delivery_address=checkout.delivery_address,
             )
         except OrderConfirmationPersistenceError:
+            logger.exception(
+                "Order confirmation returned a persistence failure.",
+                extra={"event": "order_confirmation_persistence_failure"},
+            )
             return self._temporary_failure(input.session)
         if isinstance(result, StockUnavailable):
             return self._stock_unavailable(input.session, result)
@@ -95,6 +146,13 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
             return self._stale_checkout(input.session, result)
         assert isinstance(result, OrderConfirmed)
         order = result.order
+        total = sum(
+            (item.unit_price * item.quantity for item in order.items),
+            start=Decimal(0),
+        )
+        currencies = {item.currency for item in order.items}
+        currency = next(iter(currencies), "INR")
+        formatted_total = format_money(total, currency)
         session = input.session.model_copy(
             update={
                 "cart_items": (),
@@ -110,16 +168,29 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
                 fragments=(
                     ApprovedResponseFragment(
                         id="order-confirmed",
-                        text=(
-                            f"Order {order.id} is {order.status.value}. "
-                            f"Payment method: {payment_method_label(order.payment_method)}."
-                        ),
+                        text="✅ Order Confirmed",
+                        kind=ResponseFragmentKind.SECTION,
+                    ),
+                    ApprovedResponseFragment(
+                        id="public-order-number",
+                        text=f"Order Number: {order.public_order_number}",
+                        kind=ResponseFragmentKind.FIELD,
+                    ),
+                    ApprovedResponseFragment(
+                        id="confirmed-order-payment",
+                        text=f"Payment: {payment_method_label(order.payment_method)}",
+                        kind=ResponseFragmentKind.FIELD,
+                    ),
+                    ApprovedResponseFragment(
+                        id="confirmed-order-total",
+                        text=f"Total: {formatted_total}",
+                        kind=ResponseFragmentKind.TOTAL,
                     ),
                 ),
                 protected_values=(
-                    str(order.id),
-                    order.status.value,
+                    order.public_order_number,
                     payment_method_label(order.payment_method),
+                    formatted_total,
                 ),
             ),
         )

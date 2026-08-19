@@ -78,6 +78,15 @@ class ResponseGenerator:
         )
         if missing_values:
             raise ValueError("Response composition altered protected values.")
+        markup_only = composition.message
+        for value in sorted(outcome.protected_values, key=len, reverse=True):
+            markup_only = markup_only.replace(value, "")
+        if markup_only.count("*") % 2:
+            raise ValueError("Response composition contains unbalanced bold markup.")
+        if outcome.follow_up is not None and composition.message.count("?") > 1:
+            raise ValueError("Response composition contains more than one question.")
+        if "\n\n\n" in composition.message:
+            raise ValueError("Response composition contains unstable section spacing.")
 
     @staticmethod
     def _fallback_composition(
@@ -105,14 +114,31 @@ class ResponseGenerator:
         outcome: GeneratedExecutionOutcome,
         layout: ResponseLayout,
     ) -> str:
-        if layout == ResponseLayout.LIST:
-            body = "\n".join(fragment.text for fragment in outcome.fragments)
-        else:
-            body = " ".join(fragment.text for fragment in outcome.fragments)
+        blocks: list[str] = []
+        current_lines: list[str] = []
+        for fragment in outcome.fragments:
+            if fragment.kind in {
+                ResponseFragmentKind.SECTION,
+                ResponseFragmentKind.TOTAL,
+            }:
+                if current_lines:
+                    blocks.append("\n".join(current_lines))
+                    current_lines = []
+                text = fragment.text
+                if fragment.kind in {
+                    ResponseFragmentKind.SECTION,
+                    ResponseFragmentKind.TOTAL,
+                }:
+                    text = f"*{text}*"
+                blocks.append(text)
+            else:
+                current_lines.append(fragment.text)
+        if current_lines:
+            blocks.append("\n".join(current_lines))
 
-        parts = [body] if body else []
         if outcome.follow_up is not None:
-            parts.append(outcome.follow_up.question)
-            parts.extend(option.label for option in outcome.follow_up.options)
+            if outcome.follow_up.options:
+                blocks.append("\n".join(option.label for option in outcome.follow_up.options))
+            blocks.append(outcome.follow_up.question)
 
-        return "\n".join(parts)
+        return "\n\n".join(block for block in blocks if block)

@@ -44,6 +44,16 @@ class CustomerOrderService:
             raise OrderNotFoundError("Order does not exist for this conversation.")
         return order
 
+    async def get_order_details_by_public_number(
+        self, tenant_id: UUID, conversation_id: UUID, public_order_number: str
+    ) -> Order:
+        order = await self._repository.get_for_conversation_by_public_number(
+            tenant_id, conversation_id, public_order_number
+        )
+        if order is None:
+            raise OrderNotFoundError("Order does not exist for this conversation.")
+        return order
+
     async def get_latest_order(self, conversation_id: UUID) -> Order:
         order = await self._repository.get_latest_for_conversation(conversation_id)
         if order is None:

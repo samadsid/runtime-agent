@@ -100,6 +100,7 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
         interval_seconds: float,
         provider_name: WhatsAppProviderName = WhatsAppProviderName.TWILIO,
         response_generator: ResponseGenerator | None = None,
+        returning_inactivity_hours: int = 24,
     ) -> None:
         super().__init__(interval_seconds, "inbound")
         self._repository = repository
@@ -110,6 +111,7 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
         self._max_attempts = max_attempts
         self._provider_name = provider_name
         self._response_generator = response_generator
+        self._returning_inactivity = timedelta(hours=returning_inactivity_hours)
 
     async def run_once(self) -> None:
         now = datetime.now(timezone.utc)
@@ -147,6 +149,9 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
                             language_signal or "",
                         )
                 else:
+                    previous_inbound_at = await self._repository.previous_inbound_at(
+                        inbound.conversation_id, exclude_id=inbound.id
+                    )
                     conversation = ConversationState(
                         conversation_id=inbound.conversation_id
                     )
@@ -161,6 +166,11 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
                         request_id=(
                             f"{'meta' if inbound.provider == WhatsAppProviderName.META_CLOUD else 'twilio'}-"
                             f"whatsapp:{inbound.provider_message_id}"
+                        ),
+                        conversation_entry=(
+                            previous_inbound_at is None
+                            or inbound.received_at - previous_inbound_at
+                            >= self._returning_inactivity
                         ),
                     )
                     result = await self._runtime.chat(conversation, context)

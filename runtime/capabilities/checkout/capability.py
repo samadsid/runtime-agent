@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 from commerce.models import (
     CheckoutStage,
     CheckoutState,
@@ -7,7 +9,11 @@ from commerce.models import (
     PendingSavedProfileUse,
     SavedAddressOption,
 )
-from commerce.services import CartService, SavedDeliveryDetailsService
+from commerce.services import (
+    CartService,
+    PaymentMethodPolicy,
+    SavedDeliveryDetailsService,
+)
 from runtime.capabilities import (
     Capability,
     CapabilityInput,
@@ -16,8 +22,10 @@ from runtime.capabilities import (
     CapabilityOutput,
 )
 from runtime.capabilities.checkout_support import (
+    advance_to_payment,
     all_delivery_details_outcome,
     confirmation_review_outcome,
+    format_money,
     missing_detail_outcome,
 )
 from runtime.contracts import (
@@ -34,9 +42,11 @@ class CheckoutCapability(Capability[CommerceSession]):
         self,
         service: CartService,
         saved_details_service: SavedDeliveryDetailsService | None = None,
+        payment_policy: PaymentMethodPolicy | None = None,
     ) -> None:
         self._service = service
         self._saved_details_service = saved_details_service
+        self._payment_policy = payment_policy
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -129,7 +139,20 @@ class CheckoutCapability(Capability[CommerceSession]):
         ):
             return CapabilityOutput(
                 session=session,
-                outcome=confirmation_review_outcome(checkout),
+                outcome=confirmation_review_outcome(checkout, cart.items),
+            )
+
+        if (
+            checkout.source_cart_id == cart.id
+            and checkout.source_cart_version == cart.version
+            and checkout.stage == CheckoutStage.SELECTING_PAYMENT_METHOD
+            and self._payment_policy is not None
+        ):
+            checkout, outcome = await advance_to_payment(
+                checkout, cart.items, input.context.tenant_id, self._payment_policy
+            )
+            return CapabilityOutput(
+                session=session.model_copy(update={"checkout": checkout}), outcome=outcome
             )
 
         checkout = CheckoutState(
@@ -141,20 +164,39 @@ class CheckoutCapability(Capability[CommerceSession]):
         session = session.model_copy(update={"checkout": checkout})
         fragments = [
             ApprovedResponseFragment(
-                id="checkout-cart-heading", text="Checkout cart review:"
+                id="checkout-cart-summary",
+                text="🛒 Cart Summary",
+                kind=ResponseFragmentKind.SECTION,
             )
         ]
-        fragments.extend(
-            ApprovedResponseFragment(
-                id=f"checkout-item-{ordinal}",
-                text=(
-                    f"{ordinal}. {item.product.name} — "
-                    f"{format(item.quantity, 'f')} {item.product.unit} at "
-                    f"₹{item.product.price}/{item.product.unit}"
-                ),
-                kind=ResponseFragmentKind.ITEM,
+        total = sum(
+            (item.quantity * item.product.price for item in cart.items),
+            start=Decimal(0),
+        )
+        currencies = {item.product.currency for item in cart.items}
+        if len(currencies) != 1:
+            raise ValueError("Checkout cart requires one currency.")
+        currency = next(iter(currencies), "INR")
+        for ordinal, item in enumerate(cart.items, start=1):
+            line_total = item.quantity * item.product.price
+            fragments.append(
+                ApprovedResponseFragment(
+                    id=f"checkout-item-{ordinal}",
+                    text=(
+                        f"{ordinal}. {item.product.name}\n"
+                        f"{format(item.quantity, 'f')} {item.product.unit} × "
+                        f"{format_money(item.product.price, currency)}/{item.product.unit} = "
+                        f"{format_money(line_total, currency)}"
+                    ),
+                    kind=ResponseFragmentKind.ITEM,
+                )
             )
-            for ordinal, item in enumerate(cart.items, start=1)
+        fragments.append(
+            ApprovedResponseFragment(
+                id="checkout-cart-total",
+                text=f"Total: {format_money(total, currency)}",
+                kind=ResponseFragmentKind.TOTAL,
+            )
         )
         return CapabilityOutput(
             session=session,
@@ -162,7 +204,7 @@ class CheckoutCapability(Capability[CommerceSession]):
                 status=ExecutionStatus.SUCCESS,
                 fragments=tuple(fragments),
                 follow_up=FollowUpRequest(
-                    id="proceed-with-checkout",
+                    id="proceed-from-cart-review",
                     question="Would you like to proceed with checkout?",
                 ),
                 protected_values=tuple(
@@ -173,9 +215,10 @@ class CheckoutCapability(Capability[CommerceSession]):
                         item.product.name,
                         format(item.quantity, "f"),
                         item.product.unit,
-                        f"₹{item.product.price}",
+                        format_money(item.product.price, currency),
+                        format_money(item.quantity * item.product.price, currency),
                     )
-                ),
+                ) + (format_money(total, currency),),
             ),
         )
 
@@ -213,8 +256,9 @@ class CheckoutCapability(Capability[CommerceSession]):
         )
         fragments = [
             ApprovedResponseFragment(
-                id="saved-checkout-details-available",
-                text="Saved delivery details are available:",
+                id="saved-delivery-details",
+                text="Saved Delivery Details",
+                kind=ResponseFragmentKind.SECTION,
             )
         ]
         protected = [address.label, address.delivery_address]
@@ -252,11 +296,8 @@ class CheckoutCapability(Capability[CommerceSession]):
                 status=ExecutionStatus.MISSING_INPUT,
                 fragments=tuple(fragments),
                 follow_up=FollowUpRequest(
-                    id="confirm-saved-checkout-details",
-                    question=(
-                        "Would you like to use these saved delivery details, "
-                        "or provide different ones?"
-                    ),
+                    id="use-saved-delivery-details",
+                    question="Would you like to use these saved delivery details?",
                 ),
                 protected_values=tuple(protected),
             ),
@@ -264,4 +305,5 @@ class CheckoutCapability(Capability[CommerceSession]):
 
     @staticmethod
     def _mask_phone(phone: str) -> str:
-        return f"{'*' * max(0, len(phone) - 4)}{phone[-4:]}"
+        stripped = phone.strip()
+        return f"{'*' * max(0, len(stripped) - 4)}{stripped[-4:]}"

@@ -85,13 +85,13 @@ class SwitchOrderToCashOnDeliveryCapability(Capability[CommerceSession]):
                     ApprovedResponseFragment(
                         id="switched-to-cash-on-delivery",
                         text=(
-                            f"Order {order.id} is {order.status.value} with "
+                            f"Order {order.public_order_number} is {order.status.value} with "
                             f"{payment_method_label(order.payment_method)}."
                         ),
                     ),
                 ),
                 protected_values=(
-                    str(order.id),
+                    order.public_order_number,
                     order.status.value,
                     payment_method_label(order.payment_method),
                 ),

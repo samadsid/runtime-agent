@@ -41,7 +41,6 @@ from runtime.capabilities.confirm_saved_profile_use import (
 )
 from runtime.capabilities.list_saved_addresses import ListSavedAddressesCapability
 from runtime.capabilities.save_delivery_details import SaveDeliveryDetailsCapability
-from runtime.capabilities.select_payment_method import SelectPaymentMethodCapability
 from runtime.capabilities.select_saved_address import SelectSavedAddressCapability
 from runtime.capabilities.update_saved_address import UpdateSavedAddressCapability
 from runtime.capabilities.view_saved_delivery_profile import (
@@ -432,17 +431,9 @@ async def test_saved_profile_acceptance_completes_checkout_for_payment_selection
     accepted = await ConfirmSavedProfileUseCapability(service).execute(
         capability_input(selected.session, context, {"confirmed": True})
     )
-    payment = await SelectPaymentMethodCapability().execute(
-        capability_input(
-            accepted.session,
-            context,
-            {"payment_method": PaymentMethod.CASH_ON_DELIVERY.value},
-        )
-    )
-
     assert accepted.session.checkout.stage == CheckoutStage.READY_TO_CONFIRM
-    assert payment.outcome.status == ExecutionStatus.SUCCESS
-    assert payment.session.checkout.payment_method == PaymentMethod.CASH_ON_DELIVERY
+    assert accepted.outcome.status == ExecutionStatus.SUCCESS
+    assert accepted.session.checkout.payment_method == PaymentMethod.CASH_ON_DELIVERY
 
 
 @pytest.mark.asyncio
@@ -491,7 +482,7 @@ async def test_checkout_proactively_offers_default_saved_delivery_details(
     assert "Phone: ******7170" in rendered
     assert "Address (Home): B-68 New Zafrabad" in rendered
     assert "9560717170" not in rendered
-    assert offer.outcome.follow_up.id == "confirm-saved-checkout-details"
+    assert offer.outcome.follow_up.id == "use-saved-delivery-details"
     assert offer.session.checkout.delivery_address is None
     assert offer.session.pending_saved_profile_use is not None
 
@@ -538,7 +529,7 @@ async def test_saved_address_completion_advances_existing_profile_checkout(
 
     assert selected.session.pending_saved_profile_use is None
     assert selected.session.checkout.stage == CheckoutStage.READY_TO_CONFIRM
-    assert selected.outcome.follow_up.id == "select-payment-method"
+    assert selected.outcome.follow_up.id == "confirm-order-placement"
 
 
 def test_planner_projection_hides_saved_address_text_and_identifiers() -> None:
@@ -632,7 +623,7 @@ def test_checkout_review_uses_customer_facing_payment_label() -> None:
     )
 
     rendered = "\n".join(fragment.text for fragment in outcome.fragments)
-    assert "Payment: Cash on delivery" in rendered
+    assert "Payment\nCash on Delivery" in rendered
     assert "CASH_ON_DELIVERY" not in rendered
 
 

@@ -224,7 +224,7 @@ Mandatory capability-routing rules:
   message. Extract and pass every supplied field in the same
   `collect_delivery_details` command; do not discard fields or split a complete
   reply into separate turns.
-- During `COLLECTING_DETAILS` or `READY_TO_CONFIRM`, an explicit request to
+- During `COLLECTING_DETAILS`, `SELECTING_PAYMENT_METHOD`, or `READY_TO_CONFIRM`, an explicit request to
   change, correct, replace, or update the delivery name, phone number, or
   address executes `update_delivery_details`, never product search.
 - If the correction includes replacement values, pass every supplied named
@@ -245,6 +245,9 @@ Mandatory capability-routing rules:
   ask for explicit confirmation instead of executing `confirm_order`.
 - A delivery correction never confirms an order. Require a new explicit
   confirmation after returning the corrected review.
+- When checkout stage is `SELECTING_PAYMENT_METHOD`, route an unambiguous
+  displayed payment-method name or ordinal to `select_payment_method`. A generic
+  acknowledgement must not select a method.
 - If the customer asks where their order is or asks for order status, execute
   `get_order_status`.
 - If the customer asks to see their orders or order history, execute

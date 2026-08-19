@@ -341,7 +341,10 @@ async def list_orders(
     status: str | None = None,
     created_from: datetime | None = None,
     created_to: datetime | None = None,
-    order_reference: UUID | None = None,
+    order_reference: Annotated[
+        str | None,
+        Query(pattern=r"^[A-Za-z0-9]{1,8}-[0-9]{6}-[0-9]{4,}$", max_length=32),
+    ] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: str | None = None,
 ):
@@ -363,7 +366,8 @@ async def list_orders(
     try:
         page = await request.app.state.application_container.staff_order_query_service.list_orders(
             context, StaffOrderFilters(status=status, created_from=created_from,
-                                       created_to=created_to, order_reference=order_reference),
+                                       created_to=created_to,
+                                       order_reference=(order_reference.strip().upper() if order_reference else None)),
             limit, cursor,
         )
     except InvalidStaffOrderCursorError as error:

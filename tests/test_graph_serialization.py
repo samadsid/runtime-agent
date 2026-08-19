@@ -2,10 +2,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
 from asyncpg.pgproto.pgproto import UUID as AsyncpgUUID
 
 from commerce.models import (
     CartItem,
+    CartStatus,
     CatalogBrowseKind,
     CatalogBrowseState,
     CatalogProductOption,
@@ -23,6 +25,7 @@ from commerce.models import (
     PendingCartProductOption,
     PendingOrderCancellation,
     Product,
+    ProductStatus,
     StockRecoveryAction,
     StockRecoveryOption,
     StockRecoveryState,
@@ -37,6 +40,18 @@ def test_configured_serializer_allows_direct_order_status_enum() -> None:
     restored = serializer.loads_typed(serializer.dumps_typed(OrderStatus.CONFIRMED))
 
     assert restored is OrderStatus.CONFIRMED
+
+
+@pytest.mark.parametrize(
+    "value",
+    (ProductStatus.ACTIVE, CartStatus.ACTIVE, DeliveryDetailField.DELIVERY_ADDRESS),
+)
+def test_configured_serializer_allows_nested_durable_enums(value: object) -> None:
+    serializer = GraphCheckpointer().instance.serde
+
+    restored = serializer.loads_typed(serializer.dumps_typed(value))
+
+    assert restored is value
 
 
 def test_configured_serializer_round_trips_durable_commerce_models(
@@ -116,8 +131,9 @@ def test_configured_serializer_round_trips_durable_commerce_models(
             ),
         ),
         recent_order_results=(
-            OrderSummary(
-                order_id=(order_id := uuid4()),
+                OrderSummary(
+                    order_id=(order_id := uuid4()),
+                    public_order_number="MU-260818-0001",
                 status=OrderStatus.CONFIRMED,
                 created_at=datetime.now(timezone.utc),
                 item_count=1,

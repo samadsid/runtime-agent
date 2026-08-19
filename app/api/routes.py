@@ -125,7 +125,7 @@ async def chat(
         body.message, body.conversation_id, normalized_customer_id
     )
     tenant_id = application_container.settings.DEFAULT_TENANT_ID
-    record, _ = await application_container.chat_request_repository.begin(
+    record, request_created = await application_container.chat_request_repository.begin(
         tenant_id,
         logical_request_id,
         request_fingerprint,
@@ -161,6 +161,7 @@ async def chat(
                 channel=ChannelName.DEVELOPMENT_HTTP,
                 channel_customer_id=normalized_customer_id,
                 request_id=f"development-http:{logical_request_id}",
+                conversation_entry=request_created and body.conversation_id is None,
             )
             conversation = await application_container.runtime.chat(
                 conversation, customer_context

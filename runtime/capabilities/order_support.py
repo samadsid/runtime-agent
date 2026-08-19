@@ -27,6 +27,7 @@ async def resolve_order_target(
     data: dict[str, object],
     session: CommerceSession,
     service: CustomerOrderService,
+    tenant_id: UUID,
     conversation_id: UUID,
 ) -> Order:
     reference = data.get("order_reference")
@@ -41,10 +42,15 @@ async def resolve_order_target(
     if reference is not None:
         if not isinstance(reference, str):
             raise InvalidOrderTargetError
+        normalized = reference.strip().upper()
+        if not normalized:
+            raise InvalidOrderTargetError
         try:
-            order_id = UUID(reference.strip())
-        except (ValueError, AttributeError) as exc:
-            raise InvalidOrderTargetError from exc
+            order_id = UUID(normalized)
+        except (ValueError, AttributeError):
+            return await service.get_order_details_by_public_number(
+                tenant_id, conversation_id, normalized
+            )
         return await service.get_order_details(conversation_id, order_id)
 
     if ordinal is not None:
@@ -81,7 +87,7 @@ def target_error_outcome(
         options = tuple(
             ApprovedOption(
                 id=f"recent-order-{ordinal}",
-                label=f"{ordinal}. Order {summary.order_id}",
+                label=f"{ordinal}. Order {summary.public_order_number}",
             )
             for ordinal, summary in enumerate(session.recent_order_results, start=1)
         )

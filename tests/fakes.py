@@ -318,6 +318,8 @@ class InMemoryOrderRepository(OrderRepository):
         now = datetime.now(timezone.utc)
         order = Order(
             id=order_id,
+            tenant_id=tenant_id,
+            public_order_number=f"MU-260818-{len(self.orders) + 1:04d}",
             source_cart_id=cart_id,
             conversation_id=conversation_id,
             status=OrderStatus.CONFIRMED,
@@ -360,6 +362,7 @@ class InMemoryOrderRepository(OrderRepository):
         return tuple(
             OrderSummary(
                 order_id=order.id,
+                public_order_number=order.public_order_number,
                 status=order.status,
                 created_at=order.created_at,
                 item_count=len(order.items),
@@ -401,6 +404,21 @@ class InMemoryOrderRepository(OrderRepository):
             return None
         latest = max(matches, key=lambda order: (order.created_at, order.id))
         return await self.get_for_conversation(conversation_id, latest.id)
+
+    async def get_for_conversation_by_public_number(
+        self, tenant_id: UUID, conversation_id: UUID, public_order_number: str
+    ) -> Order | None:
+        order = next(
+            (
+                candidate
+                for candidate in self.orders
+                if candidate.public_order_number == public_order_number
+                and candidate.tenant_id == tenant_id
+                and candidate.conversation_id == conversation_id
+            ),
+            None,
+        )
+        return order
 
     async def get_latest_order(self, conversation_id: UUID) -> Order | None:
         return await self.get_latest_for_conversation(conversation_id)

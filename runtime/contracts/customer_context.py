@@ -15,3 +15,4 @@ class CustomerChannelContext(BaseModel):
     channel: ChannelName
     channel_customer_id: str | None = None
     request_id: str | None = None
+    conversation_entry: bool = False

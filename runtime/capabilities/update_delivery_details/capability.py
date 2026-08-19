@@ -8,8 +8,14 @@ from commerce.models import (
     CheckoutState,
     CommerceSession,
     DeliveryDetailField,
+    PaymentMethod,
 )
-from commerce.services import CartService, PhoneValidationPolicy
+from commerce.services import (
+    CartService,
+    ConfiguredPaymentMethodPolicy,
+    PaymentMethodPolicy,
+    PhoneValidationPolicy,
+)
 from runtime.capabilities import (
     Capability,
     CapabilityInput,
@@ -19,7 +25,7 @@ from runtime.capabilities import (
 )
 from runtime.capabilities.checkout_support import (
     NonEmptyText,
-    confirmation_review_outcome,
+    advance_to_payment,
     missing_detail_outcome,
     next_missing_detail,
 )
@@ -48,10 +54,16 @@ class UpdateDeliveryDetailsCapability(Capability[CommerceSession]):
     )
 
     def __init__(
-        self, cart_service: CartService, phone_policy: PhoneValidationPolicy
+        self,
+        cart_service: CartService,
+        phone_policy: PhoneValidationPolicy,
+        payment_policy: PaymentMethodPolicy | None = None,
     ) -> None:
         self._cart_service = cart_service
         self._phone_policy = phone_policy
+        self._payment_policy = payment_policy or ConfiguredPaymentMethodPolicy(
+            (PaymentMethod.CASH_ON_DELIVERY,), online_operational=False
+        )
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -143,10 +155,13 @@ class UpdateDeliveryDetailsCapability(Capability[CommerceSession]):
         checkout = checkout.model_copy(update=updates)
         missing = next_missing_detail(checkout)
         if missing is None:
-            checkout = checkout.model_copy(
-                update={"stage": CheckoutStage.READY_TO_CONFIRM}
+            checkout, outcome = await advance_to_payment(
+                checkout,
+                cart.items,
+                input.context.tenant_id,
+                self._payment_policy,
+                corrected=True,
             )
-            outcome = confirmation_review_outcome(checkout, cart.items, corrected=True)
         else:
             checkout = checkout.model_copy(
                 update={"stage": CheckoutStage.COLLECTING_DETAILS}

@@ -13,6 +13,7 @@ class OrderSummary(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     order_id: UUID
+    public_order_number: str = Field(min_length=1, max_length=32)
     status: OrderStatus
     created_at: datetime
     item_count: int = Field(ge=0)

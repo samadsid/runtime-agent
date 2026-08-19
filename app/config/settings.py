@@ -1,10 +1,12 @@
 import re
 from typing import Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import AnyHttpUrl, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from commerce.models import PaymentMethod
 from infrastructure.database.config import DatabaseConfig
 
 
@@ -38,6 +40,13 @@ class Settings(BaseSettings):
     WEB_CHAT_ALLOWED_ORIGINS: list[str] = ["http://localhost:5173"]
     APP_ENV: Literal["development", "test", "production"] = "development"
     PAYMENT_PROVIDER: Literal["fake"] = "fake"
+    CHECKOUT_ENABLED_PAYMENT_METHODS: list[PaymentMethod] = [
+        PaymentMethod.CASH_ON_DELIVERY,
+        PaymentMethod.ONLINE
+    ]
+    PUBLIC_ORDER_NUMBER_PREFIX: str = "MU"
+    BUSINESS_TIMEZONE: str = "Asia/Kolkata"
+    CUSTOMER_RETURNING_INACTIVITY_HOURS: int = Field(default=24, ge=1, le=8760)
     FAKE_PAYMENT_WEBHOOK_SECRET: str | None = None
     FAKE_PAYMENT_BASE_URL: str = "http://localhost:8000"
     PAYMENT_ATTEMPT_TTL_MINUTES: int = Field(default=15, ge=1)
@@ -114,6 +123,12 @@ class Settings(BaseSettings):
     INVENTORY_RECONCILIATION_BATCH_SIZE: int = Field(default=100, ge=1, le=1000)
 
     def validate_payment_configuration(self) -> None:
+        if not self.CHECKOUT_ENABLED_PAYMENT_METHODS:
+            raise RuntimeError("At least one checkout payment method is required.")
+        if len(set(self.CHECKOUT_ENABLED_PAYMENT_METHODS)) != len(
+            self.CHECKOUT_ENABLED_PAYMENT_METHODS
+        ):
+            raise RuntimeError("Checkout payment methods must be unique.")
         if self.APP_ENV == "production" and self.PAYMENT_PROVIDER == "fake":
             raise RuntimeError("Fake payments are disabled in production.")
         placeholders = {None, "", "replace-with-a-random-development-secret"}
@@ -121,6 +136,23 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 "A non-placeholder fake payment webhook secret is required."
             )
+
+    def validate_order_number_configuration(self) -> None:
+        if self.APP_ENV == "production" and not {
+            "PUBLIC_ORDER_NUMBER_PREFIX",
+            "BUSINESS_TIMEZONE",
+        } <= self.model_fields_set:
+            raise RuntimeError(
+                "Production must explicitly configure public order prefix and business timezone."
+            )
+        if re.fullmatch(r"[A-Z0-9]{1,8}", self.PUBLIC_ORDER_NUMBER_PREFIX) is None:
+            raise RuntimeError(
+                "PUBLIC_ORDER_NUMBER_PREFIX must be 1-8 uppercase ASCII letters or digits."
+            )
+        try:
+            ZoneInfo(self.BUSINESS_TIMEZONE)
+        except ZoneInfoNotFoundError as error:
+            raise RuntimeError("BUSINESS_TIMEZONE must be a valid IANA timezone.") from error
 
     def validate_twilio_configuration(self) -> None:
         if self.WHATSAPP_PROVIDER != "twilio":
