@@ -25,6 +25,7 @@ from channels.providers import (
     OutboundMessageProvider,
     PermanentSendError,
     RetryableSendError,
+    TypingIndicatorProvider,
 )
 from channels.templates import WhatsAppTemplateRegistry
 from commerce.models import ChannelName, NotificationContentMode
@@ -102,8 +103,12 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
         provider_name: WhatsAppProviderName = WhatsAppProviderName.TWILIO,
         response_generator: ResponseGenerator | None = None,
         returning_inactivity_hours: int = 24,
+        typing_provider: TypingIndicatorProvider | None = None,
+        typing_refresh_seconds: float = 20.0,
     ) -> None:
         super().__init__(interval_seconds, "inbound")
+        if typing_refresh_seconds <= 0:
+            raise ValueError("typing_refresh_seconds must be positive")
         self._repository = repository
         self._runtime = runtime
         self._sender_id = sender_id
@@ -113,6 +118,8 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
         self._provider_name = provider_name
         self._response_generator = response_generator
         self._returning_inactivity = timedelta(hours=returning_inactivity_hours)
+        self._typing_provider = typing_provider
+        self._typing_refresh_seconds = typing_refresh_seconds
 
     async def run_once(self) -> None:
         now = datetime.now(timezone.utc)
@@ -123,12 +130,18 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
 
     async def _process(self, inbound: InboundMessage) -> None:
         started = asyncio.get_running_loop().time()
+        typing_task: asyncio.Task[None] | None = None
         try:
             async with self._repository.conversation_lock(
                 inbound.tenant_id, inbound.conversation_id
             ) as acquired:
                 if not acquired:
                     raise RuntimeError("conversation_busy")
+                if self._typing_provider is not None:
+                    typing_task = asyncio.create_task(
+                        self._refresh_typing(inbound.provider_message_id)
+                    )
+                    await asyncio.sleep(0)
                 if inbound.message_kind == MessageKind.UNSUPPORTED:
                     approved = (
                         "That location message is invalid or unsupported. Please send a standard one-time WhatsApp Location attachment."
@@ -222,6 +235,28 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
                 "Inbound channel message processing failed",
                 extra={"inbound_id": str(inbound.id)},
             )
+        finally:
+            if typing_task is not None:
+                typing_task.cancel()
+                try:
+                    await typing_task
+                except asyncio.CancelledError:
+                    pass
+
+    async def _refresh_typing(self, inbound_provider_message_id: str) -> None:
+        assert self._typing_provider is not None
+        while True:
+            try:
+                await self._typing_provider.send_typing(inbound_provider_message_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning(
+                    "WhatsApp typing indicator failed",
+                    extra={"provider": self._provider_name.value},
+                    exc_info=True,
+                )
+            await asyncio.sleep(self._typing_refresh_seconds)
 
 
 class ChannelOutboundDispatcher(PeriodicChannelWorker):

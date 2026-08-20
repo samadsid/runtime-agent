@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from uuid import UUID
 
 from channels.models import (
@@ -19,6 +20,9 @@ TwilioRetryableSendError = RetryableSendError
 TwilioPermanentSendError = PermanentSendError
 TwilioAmbiguousSendError = AmbiguousSendError
 
+_INBOUND_MESSAGE_SID = re.compile(r"^(?:SM|MM)[A-Fa-f0-9]{32}$")
+_TYPING_URL = "https://messaging.twilio.com/v3/Indicators/Typing.json"
+
 
 class TwilioWhatsAppMessageProvider:
     def __init__(
@@ -32,9 +36,36 @@ class TwilioWhatsAppMessageProvider:
         from twilio.rest import Client
 
         self._client = Client(account_sid, auth_token)
+        self._account_sid = account_sid
+        self._auth_token = auth_token
         self._sender_id = sender_id
         self._max_body_chars = max_body_chars
         self._status_callback_url = status_callback_url
+
+    async def send_typing(self, inbound_provider_message_id: str) -> None:
+        if _INBOUND_MESSAGE_SID.fullmatch(inbound_provider_message_id) is None:
+            raise TwilioPermanentSendError("invalid_inbound_message_sid")
+        try:
+            response = await asyncio.to_thread(
+                self._client.http_client.request,
+                "POST",
+                _TYPING_URL,
+                data={
+                    "channel": "WHATSAPP",
+                    "messageId": inbound_provider_message_id,
+                },
+                headers={"Content-Type": "application/json"},
+                auth=(self._account_sid, self._auth_token),
+            )
+        except Exception as exc:
+            raise TwilioRetryableSendError("typing_indicator_unavailable") from exc
+        if response.status_code >= 400:
+            error = (
+                TwilioRetryableSendError
+                if response.status_code == 429 or response.status_code >= 500
+                else TwilioPermanentSendError
+            )
+            raise error(f"twilio_typing_http_{response.status_code}")
 
     async def send_text(
         self,

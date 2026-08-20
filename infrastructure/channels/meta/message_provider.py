@@ -96,6 +96,25 @@ class MetaWhatsAppMessageProvider:
             }
         )
 
+    async def send_typing(self, inbound_provider_message_id: str) -> None:
+        if _WAMID.fullmatch(inbound_provider_message_id) is None:
+            raise PermanentSendError("invalid_inbound_wamid")
+        try:
+            response = await self._client.post(
+                self._url,
+                headers=self._headers,
+                json={
+                    "messaging_product": "whatsapp",
+                    "status": "read",
+                    "message_id": inbound_provider_message_id,
+                    "typing_indicator": {"type": "text"},
+                },
+            )
+        except httpx.TransportError as exc:
+            raise RetryableSendError("meta_typing_transport") from exc
+        if response.status_code >= 400:
+            raise RetryableSendError(f"meta_typing_http_{response.status_code}")
+
     async def _post(self, payload: dict[str, object]) -> ProviderMessageResult:
         try:
             response = await self._client.post(

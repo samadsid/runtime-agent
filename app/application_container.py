@@ -834,6 +834,7 @@ class ApplicationContainer:
         self.channel_inbound_processor = ChannelInboundProcessor(
             runtime=self.runtime,
             sender_id=self.whatsapp_sender_id,
+            typing_provider=self.whatsapp_provider,
             response_generator=self.response_generator,
             returning_inactivity_hours=self.settings.CUSTOMER_RETURNING_INACTIVITY_HOURS,
             **common,

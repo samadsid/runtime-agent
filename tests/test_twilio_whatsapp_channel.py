@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -15,7 +16,10 @@ from app.api.twilio_whatsapp_webhooks import router
 from app.jobs.channel_workers import ChannelInboundProcessor
 from channels.models import InboundMessage, InboundStatus, MessageKind
 from commerce.models import ChannelName
-from infrastructure.channels.twilio import TwilioRequestValidator
+from infrastructure.channels.twilio import (
+    TwilioRequestValidator,
+    TwilioWhatsAppMessageProvider,
+)
 
 
 class FakeChannelRepository:
@@ -53,6 +57,14 @@ class FakeRuntime:
         self.calls.append((conversation, context))
         conversation.add_assistant_message("Approved reply")
         return conversation
+
+
+class FakeTypingProvider:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def send_typing(self, inbound_provider_message_id: str) -> None:
+        self.calls.append(inbound_provider_message_id)
 
 
 def _app(repository: FakeChannelRepository, token: str = "token") -> FastAPI:
@@ -171,6 +183,74 @@ async def test_processor_passes_trusted_context_and_persists_reply() -> None:
     assert context.request_id == f"twilio-whatsapp:{inbound.provider_message_id}"
     assert repository.completed[0][1] == "Approved reply"
     assert repository.failed == []
+
+
+@pytest.mark.asyncio
+async def test_processor_shows_typing_while_generating_response() -> None:
+    now = datetime.now(timezone.utc)
+    inbound = InboundMessage(
+        id=uuid4(),
+        tenant_id=uuid4(),
+        channel=ChannelName.WHATSAPP,
+        provider_message_id="SM" + "a" * 32,
+        conversation_id=uuid4(),
+        sender_id="whatsapp:+919876543210",
+        recipient_id="whatsapp:+14155238886",
+        body="show products",
+        message_kind=MessageKind.TEXT,
+        status=InboundStatus.PROCESSING,
+        attempt_count=1,
+        next_attempt_at=now,
+        lease_expires_at=now,
+        last_error_code=None,
+        received_at=now,
+        processed_at=None,
+    )
+    typing = FakeTypingProvider()
+    processor = ChannelInboundProcessor(
+        FakeChannelRepository(),
+        FakeRuntime(),
+        "whatsapp:+14155238886",
+        20,
+        120,
+        5,
+        1,
+        typing_provider=typing,
+        typing_refresh_seconds=0.001,
+    )
+
+    await processor._process(inbound)
+    await asyncio.sleep(0)
+
+    assert typing.calls
+    assert set(typing.calls) == {inbound.provider_message_id}
+
+
+@pytest.mark.asyncio
+async def test_twilio_provider_sends_typing_indicator_payload() -> None:
+    class HttpClient:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def request(self, *args, **kwargs):
+            self.calls.append((args, kwargs))
+            return SimpleNamespace(status_code=200)
+
+    provider = TwilioWhatsAppMessageProvider.__new__(TwilioWhatsAppMessageProvider)
+    provider._client = SimpleNamespace(http_client=HttpClient())
+    provider._account_sid = "AC" + "1" * 32
+    provider._auth_token = "token"
+    message_id = "SM" + "a" * 32
+
+    await provider.send_typing(message_id)
+
+    args, kwargs = provider._client.http_client.calls[0]
+    assert args[:2] == (
+        "POST",
+        "https://messaging.twilio.com/v3/Indicators/Typing.json",
+    )
+    assert kwargs["data"] == {"channel": "WHATSAPP", "messageId": message_id}
+    assert kwargs["auth"] == (provider._account_sid, provider._auth_token)
 
 
 @pytest.mark.asyncio

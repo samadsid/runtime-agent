@@ -310,6 +310,33 @@ async def test_meta_provider_serializes_text_and_template_exactly() -> None:
 
 
 @pytest.mark.asyncio
+async def test_meta_provider_sends_typing_indicator_for_inbound_message() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"success": True})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = MetaWhatsAppMessageProvider(
+            client=client,
+            graph_api_version="v25.0",
+            phone_number_id="456",
+            access_token="secret-token",
+            max_text_chars=4096,
+        )
+        message_id = "wamid." + "C" * 20
+        await provider.send_typing(message_id)
+
+    assert json.loads(requests[0].content) == {
+        "messaging_product": "whatsapp",
+        "status": "read",
+        "message_id": message_id,
+        "typing_indicator": {"type": "text"},
+    }
+
+
+@pytest.mark.asyncio
 async def test_meta_provider_classifies_retryable_and_ambiguous_results() -> None:
     async def retry_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(429, json={})

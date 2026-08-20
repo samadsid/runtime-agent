@@ -32,3 +32,7 @@ class OutboundMessageProvider(Protocol):
         template: ApprovedTemplateMessage,
         idempotency_key: UUID,
     ) -> ProviderMessageResult: ...
+
+
+class TypingIndicatorProvider(Protocol):
+    async def send_typing(self, inbound_provider_message_id: str) -> None: ...
