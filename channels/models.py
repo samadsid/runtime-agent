@@ -9,10 +9,12 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from commerce.models import ChannelName, NotificationContentMode
+from commerce.models.delivery_location import InboundLocation
 
 
 class MessageKind(str, Enum):
     TEXT = "TEXT"
+    LOCATION = "LOCATION"
     UNSUPPORTED = "UNSUPPORTED"
 
 
@@ -67,6 +69,7 @@ class InboundMessage(BaseModel):
     recipient_id: str
     body: str
     message_kind: MessageKind
+    location: InboundLocation | None = None
     status: InboundStatus
     attempt_count: int
     next_attempt_at: datetime
@@ -137,6 +140,7 @@ class NormalizedInboundEvent:
     recipient_id: str
     body: str
     message_kind: MessageKind
+    location: InboundLocation | None = None
 
 
 @dataclass(frozen=True)

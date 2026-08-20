@@ -2,6 +2,23 @@
 
 ## Completed
 
+### WhatsApp Delivery Location and Serviceability
+
+- Signed Meta location attachments normalize to bounded provider-neutral Decimal
+  coordinates and remain bound to the claimed inbound message
+- Planner and response prompts receive coordinate-free facts; capabilities never
+  accept generated coordinates
+- Active tenant-owned PostGIS MultiPolygons decide coverage with boundary-inclusive,
+  priority-stable lookup
+- Location-aware onboarding, explicit save consent, saved-address revalidation, and
+  atomic COD/online confirmation checks preserve carts on stale zones or failures
+- ADMIN staff APIs and the responsive mobile map editor manage, preview, test,
+  activate, and deactivate versioned coverage boundaries
+- Forward and reverse geocoding ports are present with disabled adapters; ambiguous
+  or unavailable text geocoding fails closed and requests an exact pin
+
+The graph remains `START → PlannerNode → ExecuteNode → ResponseNode → END`.
+
 ### Checkout Conversation UX and Public Order Numbers
 
 - COD-only checkout auto-selects and discloses COD; multiple operational methods use

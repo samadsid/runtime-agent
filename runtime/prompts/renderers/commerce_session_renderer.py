@@ -110,6 +110,12 @@ class CommerceSessionRenderer:
             if checkout.delivery_address is not None
             else "Delivery address: missing"
         )
+        if checkout.stage.value != "NONE" or checkout.delivery_location is not None:
+            lines.append(
+                "Checked delivery location: present"
+                if checkout.delivery_location is not None
+                else "Checked delivery location: missing"
+            )
         lines.append("Pending delivery correction:")
         lines.append(
             checkout.pending_delivery_correction.value
@@ -208,6 +214,11 @@ class CommerceSessionRenderer:
                 "Address: provided"
                 if onboarding.pending_delivery_address is not None
                 else "Address: missing"
+            )
+            lines.append(
+                "Checked delivery location: present"
+                if onboarding.pending_delivery_location is not None
+                else "Checked delivery location: missing"
             )
 
         return "\n".join(lines)

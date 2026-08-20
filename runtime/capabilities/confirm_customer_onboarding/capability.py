@@ -2,10 +2,16 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from commerce.models import CommerceSession, CustomerOnboardingState, OnboardingStage
+from commerce.models import (
+    ChannelName,
+    CommerceSession,
+    CustomerOnboardingState,
+    OnboardingStage,
+)
 from commerce.repositories import (
     SavedDeliveryPersistenceError,
     SavedDeliveryProfileConflictError,
+    StaleSavedDeliveryAddressError,
 )
 from commerce.services import SavedDeliveryDetailsService
 from runtime.capabilities import (
@@ -28,8 +34,13 @@ class NoArguments(BaseModel):
 
 
 class ConfirmCustomerOnboardingCapability(Capability[CommerceSession]):
-    def __init__(self, service: SavedDeliveryDetailsService) -> None:
+    def __init__(
+        self,
+        service: SavedDeliveryDetailsService,
+        require_whatsapp_location: bool = False,
+    ) -> None:
         self._service = service
+        self._require_whatsapp_location = require_whatsapp_location
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -54,6 +65,27 @@ class ConfirmCustomerOnboardingCapability(Capability[CommerceSession]):
             )
         ):
             return self._invalid(input.session)
+        if (
+            self._require_whatsapp_location
+            and input.context.channel is ChannelName.WHATSAPP
+            and state.pending_delivery_location is None
+        ):
+            return CapabilityOutput(
+                session=input.session,
+                outcome=GeneratedExecutionOutcome(
+                    status=ExecutionStatus.MISSING_INPUT,
+                    fragments=(
+                        ApprovedResponseFragment(
+                            id="location-sharing-unavailable",
+                            text="The text address cannot be saved as serviceable without an exact location check while geocoding is disabled.",
+                        ),
+                    ),
+                    follow_up=FollowUpRequest(
+                        id="share-delivery-location",
+                        question="Please send the delivery destination using WhatsApp Location.",
+                    ),
+                ),
+            )
         customer_name = state.pending_customer_name
         phone_number = state.pending_phone_number
         delivery_address = state.pending_delivery_address
@@ -61,15 +93,48 @@ class ConfirmCustomerOnboardingCapability(Capability[CommerceSession]):
         assert phone_number is not None
         assert delivery_address is not None
         try:
-            await self._service.complete_onboarding(
-                input.context.tenant_id,
-                input.context.channel,
-                input.context.channel_customer_id,
-                customer_name,
-                phone_number,
-                delivery_address,
-                datetime.now(timezone.utc),
-                input.context.request_id,
+            if (
+                state.replacement_address_id is not None
+                and state.replacement_address_version is not None
+                and state.pending_delivery_location is not None
+            ):
+                await self._service.update_address(
+                    input.context.tenant_id,
+                    input.context.channel_customer_id,
+                    state.replacement_address_id,
+                    state.replacement_address_version,
+                    None,
+                    delivery_address,
+                    state.pending_delivery_location,
+                )
+            else:
+                await self._service.complete_onboarding(
+                    input.context.tenant_id,
+                    input.context.channel,
+                    input.context.channel_customer_id,
+                    customer_name,
+                    phone_number,
+                    delivery_address,
+                    datetime.now(timezone.utc),
+                    input.context.request_id,
+                    state.pending_delivery_location,
+                )
+        except StaleSavedDeliveryAddressError:
+            return CapabilityOutput(
+                session=input.session,
+                outcome=GeneratedExecutionOutcome(
+                    status=ExecutionStatus.CONFLICT,
+                    fragments=(
+                        ApprovedResponseFragment(
+                            id="saved-address-changed",
+                            text="The saved address changed before the replacement was confirmed, so it was not overwritten.",
+                        ),
+                    ),
+                    follow_up=FollowUpRequest(
+                        id="review-saved-details",
+                        question="Would you like to review the current saved address?",
+                    ),
+                ),
             )
         except SavedDeliveryProfileConflictError:
             return CapabilityOutput(

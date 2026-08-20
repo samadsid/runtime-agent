@@ -5,6 +5,7 @@ import {
   dashboardSummarySchema, loginResponseSchema, orderDetailsSchema, orderPageSchema,
   inventorySummarySchema, movementPageSchema, productWithInventorySchema,
   staffIdentitySchema, transitionResponseSchema, type OrderStatus,
+  deliveryZoneSchema, deliveryZonePageSchema, deliveryZonePointResponseSchema,
 } from "./contracts";
 import type { StaffApiClient } from "./client";
 
@@ -16,6 +17,8 @@ export type OrderFilters = {
 };
 export type CatalogFilters = { status?: "ACTIVE" | "INACTIVE"; categoryId?: string; query?: string; stockState?: "LOW" | "OUT" | "AVAILABLE" };
 export type ProductInput = { sku: string; name: string; category_id: string | null; price: string; currency: string; unit: string; status?: "ACTIVE" | "INACTIVE"; low_stock_threshold: string | null; display_order: number };
+export type GeoJsonBoundary = { type: "Polygon" | "MultiPolygon"; coordinates: unknown[] };
+export type DeliveryZoneInput = { name: string; priority: number; boundary: GeoJsonBoundary };
 
 function queryString(values: Record<string, string | undefined>): string {
   const params = Object.entries(values).filter((entry): entry is [string, string] => Boolean(entry[1]));
@@ -64,6 +67,12 @@ export function createStaffApi(client: StaffApiClient) {
     inventorySummary: (signal?: AbortSignal) => client.request("/api/staff/v1/inventory/summary", { authenticated: true, schema: inventorySummarySchema, signal }),
     movements: (id: string, cursor?: string, signal?: AbortSignal) => client.request(`/api/staff/v1/inventory/products/${encodeURIComponent(id)}/movements${queryString({ limit: "30", cursor })}`, { authenticated: true, schema: movementPageSchema, signal }),
     adjustInventory: (id: string, movementType: string, quantity: string, reason: string, version: number, idempotencyKey: string) => client.request(`/api/staff/v1/inventory/products/${encodeURIComponent(id)}/adjustments`, { method: "POST", authenticated: true, mutation: true, headers: { "Idempotency-Key": idempotencyKey, "If-Match": `"${version}"` }, body: { movement_type: movementType, quantity, reason }, schema: adjustmentResultSchema }),
+    deliveryZones: (status?: "DRAFT" | "ACTIVE" | "INACTIVE", cursor?: string, signal?: AbortSignal) => client.request(`/api/staff/v1/delivery-zones${queryString({ status, cursor, limit: "50" })}`, { authenticated: true, schema: deliveryZonePageSchema, signal }),
+    deliveryZone: (id: string, signal?: AbortSignal) => client.request(`/api/staff/v1/delivery-zones/${encodeURIComponent(id)}`, { authenticated: true, schema: deliveryZoneSchema, signal }),
+    createDeliveryZone: (body: DeliveryZoneInput, idempotencyKey: string) => client.request("/api/staff/v1/delivery-zones", { method: "POST", authenticated: true, mutation: true, headers: { "Idempotency-Key": idempotencyKey }, body, schema: deliveryZoneSchema }),
+    updateDeliveryZone: (id: string, body: Partial<DeliveryZoneInput>, version: number, idempotencyKey: string) => client.request(`/api/staff/v1/delivery-zones/${encodeURIComponent(id)}`, { method: "PATCH", authenticated: true, mutation: true, headers: { "Idempotency-Key": idempotencyKey, "If-Match": `"${version}"` }, body, schema: deliveryZoneSchema }),
+    changeDeliveryZoneStatus: (id: string, action: "activate" | "deactivate", version: number, idempotencyKey: string) => client.request(`/api/staff/v1/delivery-zones/${encodeURIComponent(id)}/${action}`, { method: "POST", authenticated: true, mutation: true, headers: { "Idempotency-Key": idempotencyKey, "If-Match": `"${version}"` }, schema: deliveryZoneSchema }),
+    checkDeliveryPoint: (latitude: number, longitude: number) => client.request("/api/staff/v1/delivery-zones/check-point", { method: "POST", authenticated: true, body: { latitude, longitude }, schema: deliveryZonePointResponseSchema }),
   };
 }
 

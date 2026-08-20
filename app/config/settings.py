@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     PAYMENT_PROVIDER: Literal["fake"] = "fake"
     CHECKOUT_ENABLED_PAYMENT_METHODS: list[PaymentMethod] = [
         PaymentMethod.CASH_ON_DELIVERY,
-        PaymentMethod.ONLINE
+        PaymentMethod.ONLINE,
     ]
     PUBLIC_ORDER_NUMBER_PREFIX: str = "MU"
     BUSINESS_TIMEZONE: str = "Asia/Kolkata"
@@ -121,6 +121,15 @@ class Settings(BaseSettings):
     CATALOG_SUPPORTED_UNITS: list[str] = ["kg", "piece"]
     INVENTORY_RECONCILIATION_INTERVAL_SECONDS: int = Field(default=300, ge=10)
     INVENTORY_RECONCILIATION_BATCH_SIZE: int = Field(default=100, ge=1, le=1000)
+    DELIVERY_SERVICEABILITY_ENABLED: bool = True
+    DELIVERY_LOCATION_REQUIRED_FOR_WHATSAPP: bool = True
+    DELIVERY_ZONE_MAX_VERTICES: int = Field(default=500, ge=4, le=5000)
+    DELIVERY_ZONE_MAX_RINGS: int = Field(default=20, ge=1, le=200)
+    DELIVERY_LOCATION_DECIMAL_PLACES: int = Field(default=6, ge=4, le=8)
+    DELIVERY_SERVICEABILITY_TIMEOUT_SECONDS: float = Field(default=3, gt=0, le=30)
+    REVERSE_GEOCODER_PROVIDER: Literal["disabled"] = "disabled"
+    REVERSE_GEOCODER_TIMEOUT_SECONDS: float = Field(default=3, gt=0, le=30)
+    DELIVERY_ZONE_API_RATE_LIMIT_PER_MINUTE: int = Field(default=60, ge=1, le=1000)
 
     def validate_payment_configuration(self) -> None:
         if not self.CHECKOUT_ENABLED_PAYMENT_METHODS:
@@ -138,10 +147,14 @@ class Settings(BaseSettings):
             )
 
     def validate_order_number_configuration(self) -> None:
-        if self.APP_ENV == "production" and not {
-            "PUBLIC_ORDER_NUMBER_PREFIX",
-            "BUSINESS_TIMEZONE",
-        } <= self.model_fields_set:
+        if (
+            self.APP_ENV == "production"
+            and not {
+                "PUBLIC_ORDER_NUMBER_PREFIX",
+                "BUSINESS_TIMEZONE",
+            }
+            <= self.model_fields_set
+        ):
             raise RuntimeError(
                 "Production must explicitly configure public order prefix and business timezone."
             )
@@ -152,7 +165,9 @@ class Settings(BaseSettings):
         try:
             ZoneInfo(self.BUSINESS_TIMEZONE)
         except ZoneInfoNotFoundError as error:
-            raise RuntimeError("BUSINESS_TIMEZONE must be a valid IANA timezone.") from error
+            raise RuntimeError(
+                "BUSINESS_TIMEZONE must be a valid IANA timezone."
+            ) from error
 
     def validate_twilio_configuration(self) -> None:
         if self.WHATSAPP_PROVIDER != "twilio":

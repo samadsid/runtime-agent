@@ -32,12 +32,14 @@ class Planner:
         messages: list[Message],
         session: CommerceSession,
         profile: CustomerProfileProjection | None = None,
+        customer_shared_location: bool = False,
     ) -> PlannerResponse:
 
         request = self._prompt_builder.build(
             messages,
             session,
             profile or CustomerProfileProjection(),
+            customer_shared_location,
         )
 
         decision = await self._llm_provider.invoke(

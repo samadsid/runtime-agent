@@ -3,6 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from commerce.models import (
+    ChannelName,
     CheckoutStage,
     CheckoutState,
     CommerceSession,
@@ -11,6 +12,7 @@ from commerce.models import (
     StaleCheckout,
     StockUnavailable,
 )
+from commerce.repositories import DeliveryLocationNotServiceableError
 from commerce.services import PaymentService
 from runtime.capabilities import (
     Capability,
@@ -34,8 +36,11 @@ class StartOnlinePaymentArguments(BaseModel):
 
 
 class StartOnlinePaymentCapability(Capability[CommerceSession]):
-    def __init__(self, service: PaymentService) -> None:
+    def __init__(
+        self, service: PaymentService, require_whatsapp_location: bool = False
+    ) -> None:
         self._service = service
+        self._require_whatsapp_location = require_whatsapp_location
 
     @property
     def metadata(self):
@@ -66,6 +71,36 @@ class StartOnlinePaymentCapability(Capability[CommerceSession]):
             )
         checkout = input.session.checkout
         if (
+            self._require_whatsapp_location
+            and input.context.channel is ChannelName.WHATSAPP
+            and checkout.delivery_location is None
+        ):
+            return CapabilityOutput(
+                session=input.session.model_copy(
+                    update={
+                        "checkout": checkout.model_copy(
+                            update={
+                                "stage": CheckoutStage.COLLECTING_DETAILS,
+                                "payment_method": None,
+                            }
+                        )
+                    }
+                ),
+                outcome=GeneratedExecutionOutcome(
+                    status=ExecutionStatus.MISSING_INPUT,
+                    fragments=(
+                        ApprovedResponseFragment(
+                            id="delivery-location-requested",
+                            text="Online payment cannot start until the exact delivery location is serviceable.",
+                        ),
+                    ),
+                    follow_up=FollowUpRequest(
+                        id="share-delivery-location",
+                        question="Please send the delivery destination using WhatsApp Location.",
+                    ),
+                ),
+            )
+        if (
             checkout.stage != CheckoutStage.READY_TO_CONFIRM
             or checkout.payment_method != PaymentMethod.ONLINE
             or None
@@ -75,6 +110,11 @@ class StartOnlinePaymentCapability(Capability[CommerceSession]):
                 checkout.customer_name,
                 checkout.phone_number,
                 checkout.delivery_address,
+            )
+            or (
+                self._require_whatsapp_location
+                and input.context.channel is ChannelName.WHATSAPP
+                and checkout.delivery_location is None
             )
         ):
             return CapabilityOutput(
@@ -93,15 +133,42 @@ class StartOnlinePaymentCapability(Capability[CommerceSession]):
                     ),
                 ),
             )
-        result = await self._service.start_online_payment(
-            tenant_id=input.context.tenant_id,
-            conversation_id=input.context.conversation_id,
-            cart_id=checkout.source_cart_id,
-            expected_cart_version=checkout.source_cart_version,
-            customer_name=checkout.customer_name,
-            phone_number=checkout.phone_number,
-            delivery_address=checkout.delivery_address,
-        )
+        try:
+            result = await self._service.start_online_payment(
+                tenant_id=input.context.tenant_id,
+                conversation_id=input.context.conversation_id,
+                cart_id=checkout.source_cart_id,
+                expected_cart_version=checkout.source_cart_version,
+                customer_name=checkout.customer_name,
+                phone_number=checkout.phone_number,
+                delivery_address=checkout.delivery_address,
+                delivery_location=checkout.delivery_location,
+            )
+        except DeliveryLocationNotServiceableError:
+            stale = checkout.model_copy(
+                update={
+                    "stage": CheckoutStage.COLLECTING_DETAILS,
+                    "delivery_address": None,
+                    "delivery_location": None,
+                    "payment_method": None,
+                }
+            )
+            return CapabilityOutput(
+                session=input.session.model_copy(update={"checkout": stale}),
+                outcome=GeneratedExecutionOutcome(
+                    status=ExecutionStatus.CONFLICT,
+                    fragments=(
+                        ApprovedResponseFragment(
+                            id="saved-location-no-longer-serviceable",
+                            text="The reviewed location is no longer serviceable. Payment was not started and the cart was preserved.",
+                        ),
+                    ),
+                    follow_up=FollowUpRequest(
+                        id="share-another-delivery-location",
+                        question="Please share another delivery location.",
+                    ),
+                ),
+            )
         if isinstance(result, StockUnavailable):
             return CapabilityOutput(
                 session=input.session,

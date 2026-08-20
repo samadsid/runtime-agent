@@ -23,7 +23,10 @@ from commerce.services import (
     CatalogBrowseService,
     ConfiguredPaymentMethodPolicy,
     CustomerOrderService,
+    DeliveryService,
     DirectCartService,
+    DisabledForwardGeocoder,
+    DisabledReverseGeocoder,
     FulfilmentService,
     NonEmptyPhoneValidationPolicy,
     NotificationTemplateRegistry,
@@ -48,6 +51,7 @@ from infrastructure.database.repositories import (
     PostgresCatalogAdminRepository,
     PostgresChannelRepository,
     PostgresChatRequestRepository,
+    PostgresDeliveryZoneRepository,
     PostgresFixedWindowRateLimiter,
     PostgresFulfilmentUnitOfWork,
     PostgresInventoryRepository,
@@ -75,6 +79,9 @@ from runtime.capabilities.clear_cart import ClearCartCapability
 from runtime.capabilities.collect_customer_onboarding_details import (
     CollectCustomerOnboardingDetailsCapability,
 )
+from runtime.capabilities.collect_delivery_address_details import (
+    CollectDeliveryAddressDetailsCapability,
+)
 from runtime.capabilities.collect_delivery_details import (
     CollectDeliveryDetailsCapability,
 )
@@ -95,6 +102,9 @@ from runtime.capabilities.greeting import GreetingCapability
 from runtime.capabilities.list_orders import ListOrdersCapability
 from runtime.capabilities.list_saved_addresses import ListSavedAddressesCapability
 from runtime.capabilities.remove_from_cart import RemoveFromCartCapability
+from runtime.capabilities.request_delivery_location import (
+    RequestDeliveryLocationCapability,
+)
 from runtime.capabilities.resolve_catalog_browse import ResolveCatalogBrowseCapability
 from runtime.capabilities.resolve_pending_cart_addition import (
     ResolvePendingCartAdditionCapability,
@@ -114,6 +124,9 @@ from runtime.capabilities.start_customer_onboarding import (
 )
 from runtime.capabilities.start_customer_shopping import StartCustomerShoppingCapability
 from runtime.capabilities.start_online_payment import StartOnlinePaymentCapability
+from runtime.capabilities.submit_delivery_location import (
+    SubmitDeliveryLocationCapability,
+)
 from runtime.capabilities.switch_order_to_cash_on_delivery import (
     SwitchOrderToCashOnDeliveryCapability,
 )
@@ -294,6 +307,13 @@ class ApplicationContainer:
         self.staff_catalog_repository = PostgresCatalogAdminRepository(
             self.database_pool, self.settings.STAFF_IDEMPOTENCY_RETENTION_HOURS
         )
+        self.delivery_zone_repository = PostgresDeliveryZoneRepository(
+            self.database_pool,
+            max_vertices=self.settings.DELIVERY_ZONE_MAX_VERTICES,
+            max_rings=self.settings.DELIVERY_ZONE_MAX_RINGS,
+            timeout_seconds=self.settings.DELIVERY_SERVICEABILITY_TIMEOUT_SECONDS,
+            idempotency_hours=self.settings.STAFF_IDEMPOTENCY_RETENTION_HOURS,
+        )
         self.inventory_reconciliation_job = InventoryReconciliationJob(
             self.staff_catalog_repository,
             self.settings.INVENTORY_RECONCILIATION_BATCH_SIZE,
@@ -379,6 +399,7 @@ class ApplicationContainer:
                 phone_number_id=self.settings.META_WHATSAPP_PHONE_NUMBER_ID,
                 max_text_chars=self.settings.META_WHATSAPP_MAX_TEXT_CHARS,
                 max_text_bytes=self.settings.META_WHATSAPP_MAX_INBOUND_BODY_BYTES,
+                decimal_places=self.settings.DELIVERY_LOCATION_DECIMAL_PLACES,
             )
             self.meta_http_client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.settings.META_WHATSAPP_HTTP_TIMEOUT_SECONDS)
@@ -461,6 +482,12 @@ class ApplicationContainer:
             repository=self.saved_delivery_details_repository,
             phone_policy=self.phone_validation_policy,
         )
+        self.delivery_service = DeliveryService(
+            self.delivery_zone_repository,
+            self.settings.DELIVERY_SERVICEABILITY_TIMEOUT_SECONDS,
+        )
+        self.reverse_geocoder = DisabledReverseGeocoder()
+        self.forward_geocoder = DisabledForwardGeocoder()
         self.payment_provider = FakePaymentProvider(
             pool=self.database_pool,
             base_url=self.settings.FAKE_PAYMENT_BASE_URL,
@@ -514,17 +541,30 @@ class ApplicationContainer:
 
         self.greeting_capability = GreetingCapability()
         self.start_customer_onboarding_capability = StartCustomerOnboardingCapability(
-            self.saved_delivery_details_service
+            self.saved_delivery_details_service,
+            self.settings.DELIVERY_LOCATION_REQUIRED_FOR_WHATSAPP,
         )
         self.collect_customer_onboarding_details_capability = (
             CollectCustomerOnboardingDetailsCapability(self.phone_validation_policy)
         )
         self.confirm_customer_onboarding_capability = (
-            ConfirmCustomerOnboardingCapability(self.saved_delivery_details_service)
+            ConfirmCustomerOnboardingCapability(
+                self.saved_delivery_details_service,
+                self.settings.DELIVERY_LOCATION_REQUIRED_FOR_WHATSAPP,
+            )
         )
         self.skip_customer_onboarding_capability = SkipCustomerOnboardingCapability()
         self.start_customer_shopping_capability = StartCustomerShoppingCapability(
             self.catalog_browse_service, self.customer_journey_observer
+        )
+        self.request_delivery_location_capability = RequestDeliveryLocationCapability()
+        self.submit_delivery_location_capability = SubmitDeliveryLocationCapability(
+            self.delivery_service,
+            self.reverse_geocoder,
+            self.saved_delivery_details_service,
+        )
+        self.collect_delivery_address_details_capability = (
+            CollectDeliveryAddressDetailsCapability(self.payment_method_policy)
         )
 
         self.search_product_capability = SearchProductCapability(
@@ -570,6 +610,10 @@ class ApplicationContainer:
             service=self.cart_service,
             saved_details_service=self.saved_delivery_details_service,
             payment_policy=self.payment_method_policy,
+            delivery_service=self.delivery_service
+            if self.settings.DELIVERY_SERVICEABILITY_ENABLED
+            else None,
+            require_whatsapp_location=self.settings.DELIVERY_LOCATION_REQUIRED_FOR_WHATSAPP,
         )
         self.collect_delivery_details_capability = CollectDeliveryDetailsCapability(
             phone_policy=self.phone_validation_policy,
@@ -584,6 +628,7 @@ class ApplicationContainer:
         self.confirm_order_capability = ConfirmOrderCapability(
             service=self.order_service,
             payment_policy=self.payment_method_policy,
+            require_whatsapp_location=self.settings.DELIVERY_LOCATION_REQUIRED_FOR_WHATSAPP,
         )
         self.get_order_status_capability = GetOrderStatusCapability(
             service=self.order_service,
@@ -605,7 +650,11 @@ class ApplicationContainer:
             ViewSavedDeliveryProfileCapability(self.saved_delivery_details_service)
         )
         self.select_saved_address_capability = SelectSavedAddressCapability(
-            self.saved_delivery_details_service, self.payment_method_policy
+            self.saved_delivery_details_service,
+            self.payment_method_policy,
+            self.delivery_service
+            if self.settings.DELIVERY_SERVICEABILITY_ENABLED
+            else None,
         )
         self.save_delivery_details_capability = SaveDeliveryDetailsCapability(
             self.saved_delivery_details_service
@@ -629,7 +678,8 @@ class ApplicationContainer:
             self.payment_method_policy
         )
         self.start_online_payment_capability = StartOnlinePaymentCapability(
-            self.payment_service
+            self.payment_service,
+            self.settings.DELIVERY_LOCATION_REQUIRED_FOR_WHATSAPP,
         )
         self.retry_online_payment_capability = RetryOnlinePaymentCapability(
             self.payment_service
@@ -649,6 +699,9 @@ class ApplicationContainer:
                 self.confirm_customer_onboarding_capability,
                 self.skip_customer_onboarding_capability,
                 self.start_customer_shopping_capability,
+                self.request_delivery_location_capability,
+                self.submit_delivery_location_capability,
+                self.collect_delivery_address_details_capability,
                 self.search_product_capability,
                 self.select_product_capability,
                 self.browse_catalog_capability,

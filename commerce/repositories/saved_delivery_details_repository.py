@@ -4,7 +4,12 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from uuid import UUID
 
-from commerce.models import ChannelName, SavedDeliveryAddress, SavedDeliveryProfile
+from commerce.models import (
+    ChannelName,
+    DeliveryLocationSnapshot,
+    SavedDeliveryAddress,
+    SavedDeliveryProfile,
+)
 
 
 class SavedDeliveryDetailsRepository(ABC):
@@ -20,6 +25,7 @@ class SavedDeliveryDetailsRepository(ABC):
         consented_at: datetime,
         request_id: str,
         address_label: str,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> SavedDeliveryProfile:
         raise NotImplementedError
 
@@ -71,6 +77,7 @@ class SavedDeliveryDetailsRepository(ABC):
         label: str,
         delivery_address: str,
         set_as_default: bool,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> SavedDeliveryAddress: ...
 
     @abstractmethod
@@ -82,6 +89,7 @@ class SavedDeliveryDetailsRepository(ABC):
         expected_version: int,
         label: str | None,
         delivery_address: str | None,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> SavedDeliveryAddress: ...
 
     @abstractmethod

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 from datetime import datetime, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -208,6 +209,35 @@ async def test_signed_batch_is_normalized_and_persisted_once() -> None:
     assert batch.inbound[0].body == "नमस्ते\nदुकान"
     assert batch.inbound[0].message_kind == MessageKind.TEXT
     assert batch.statuses[0].status == OutboundStatus.DELIVERED
+
+
+def test_parser_normalizes_exact_location_attachment() -> None:
+    payload = _payload()
+    payload["entry"][0]["changes"][0]["value"]["messages"] = [
+        {
+            "from": "919876543210",
+            "id": "wamid." + "L" * 20,
+            "type": "location",
+            "location": {
+                "latitude": "28.612345",
+                "longitude": "77.234567",
+                "name": "  Shared place  ",
+                "address": " Provider label ",
+            },
+        }
+    ]
+    parser = MetaWebhookParser(
+        waba_id="123",
+        phone_number_id="456",
+        max_text_chars=4096,
+        max_text_bytes=65536,
+    )
+    event = parser.parse(json.dumps(payload).encode()).inbound[0]
+    assert event.message_kind is MessageKind.LOCATION
+    assert event.location is not None
+    assert event.location.latitude == Decimal("28.612345")
+    assert event.location.longitude == Decimal("77.234567")
+    assert event.location.name == "Shared place"
 
 
 @pytest.mark.asyncio

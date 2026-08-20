@@ -48,6 +48,12 @@ async def ready(request: Request) -> Response:
             )
         )
     notification_worker = True
+    postgis = True
+    if container.settings.DELIVERY_SERVICEABILITY_ENABLED:
+        try:
+            postgis = await container.delivery_zone_repository.postgis_available()
+        except (asyncpg.PostgresError, RuntimeError):
+            postgis = False
     if (
         container.settings.CUSTOMER_NOTIFICATIONS_ENABLED
         and container.settings.NOTIFICATION_PROCESSOR_ENABLED
@@ -72,7 +78,9 @@ async def ready(request: Request) -> Response:
             for worker, interval in notification_workers
         )
     workers = workers and not container.whatsapp_workers_blocked
-    healthy = database and whatsapp_config and workers and notification_worker
+    healthy = (
+        database and whatsapp_config and workers and notification_worker and postgis
+    )
     return JSONResponse(
         status_code=200 if healthy else 503,
         content={
@@ -83,6 +91,7 @@ async def ready(request: Request) -> Response:
                 "whatsapp_config": whatsapp_config,
                 "whatsapp_provider": selected_provider,
                 "notification_worker": notification_worker,
+                "postgis": postgis,
             },
         },
     )

@@ -10,4 +10,6 @@ export const queryKeys = {
   products: (filters: CatalogFilters) => ["staff", "products", filters] as const,
   product: (id: string) => ["staff", "product", id] as const,
   movements: (id: string) => ["staff", "movements", id] as const,
+  deliveryZones: (status?: string) => ["staff", "delivery-zones", status] as const,
+  deliveryZone: (id: string) => ["staff", "delivery-zone", id] as const,
 };

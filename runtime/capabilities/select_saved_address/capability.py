@@ -7,9 +7,11 @@ from commerce.models import (
     CommerceSession,
     PaymentMethod,
     PendingSavedProfileUse,
+    ServiceabilityKind,
 )
 from commerce.services import (
     ConfiguredPaymentMethodPolicy,
+    DeliveryService,
     PaymentMethodPolicy,
     SavedDeliveryDetailsService,
 )
@@ -47,11 +49,13 @@ class SelectSavedAddressCapability(Capability[CommerceSession]):
         self,
         service: SavedDeliveryDetailsService,
         payment_policy: PaymentMethodPolicy | None = None,
+        delivery_service: DeliveryService | None = None,
     ) -> None:
         self._service = service
         self._payment_policy = payment_policy or ConfiguredPaymentMethodPolicy(
             (PaymentMethod.CASH_ON_DELIVERY,), online_operational=False
         )
+        self._delivery_service = delivery_service
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -102,8 +106,82 @@ class SelectSavedAddressCapability(Capability[CommerceSession]):
         )
         if address is None:
             return stale_saved_address(input.session)
+        checked_location = address.delivery_location
+        if self._delivery_service is not None:
+            if checked_location is None:
+                return CapabilityOutput(
+                    session=input.session,
+                    outcome=GeneratedExecutionOutcome(
+                        status=ExecutionStatus.MISSING_INPUT,
+                        fragments=(
+                            ApprovedResponseFragment(
+                                id="saved-location-no-longer-serviceable",
+                                text="This saved text address has not been validated against current delivery coverage.",
+                            ),
+                        ),
+                        follow_up=FollowUpRequest(
+                            id="share-delivery-location",
+                            question="Please send the delivery destination using the WhatsApp Location attachment.",
+                        ),
+                    ),
+                )
+            serviceability = await self._delivery_service.check_serviceability(
+                context.tenant_id,
+                checked_location.latitude,
+                checked_location.longitude,
+            )
+            if serviceability.kind is ServiceabilityKind.TEMPORARILY_UNAVAILABLE:
+                return CapabilityOutput(
+                    session=input.session,
+                    outcome=GeneratedExecutionOutcome(
+                        status=ExecutionStatus.FAILURE,
+                        fragments=(
+                            ApprovedResponseFragment(
+                                id="delivery-serviceability-temporarily-unavailable",
+                                text="The saved location could not be revalidated temporarily; it was not rejected.",
+                            ),
+                        ),
+                        follow_up=FollowUpRequest(
+                            id="retry-saved-location",
+                            question="Would you like to retry the saved location check?",
+                        ),
+                    ),
+                )
+            if serviceability.kind is ServiceabilityKind.OUTSIDE_SERVICE_AREA:
+                return CapabilityOutput(
+                    session=input.session,
+                    outcome=GeneratedExecutionOutcome(
+                        status=ExecutionStatus.CONFLICT,
+                        fragments=(
+                            ApprovedResponseFragment(
+                                id="saved-location-no-longer-serviceable",
+                                text="This saved location is no longer in the active delivery area.",
+                            ),
+                        ),
+                        follow_up=FollowUpRequest(
+                            id="share-another-delivery-location",
+                            question="Please share another delivery location.",
+                        ),
+                    ),
+                )
+            assert (
+                serviceability.zone_id
+                and serviceability.zone_name
+                and serviceability.zone_version
+            )
+            checked_location = checked_location.model_copy(
+                update={
+                    "zone_id": serviceability.zone_id,
+                    "zone_name": serviceability.zone_name,
+                    "zone_version": serviceability.zone_version,
+                    "checked_at": serviceability.checked_at,
+                }
+            )
         checkout = checkout.model_copy(
-            update={"delivery_address": address.delivery_address}
+            update={
+                "delivery_address": address.delivery_address,
+                "delivery_location": checked_location,
+            }
         )
         offered_name = profile.customer_name if checkout.customer_name is None else None
         offered_phone = profile.phone_number if checkout.phone_number is None else None

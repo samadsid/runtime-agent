@@ -41,6 +41,7 @@ class PlannerPromptBuilder(PromptBuilder):
         messages: list[Message],
         session: CommerceSession,
         profile: CustomerProfileProjection | None = None,
+        customer_shared_location: bool = False,
     ) -> LLMRequest:
 
         commerce_prompt = self._loader.load("commerce.md").replace(
@@ -87,6 +88,7 @@ class PlannerPromptBuilder(PromptBuilder):
                     or "None."
                 ),
                 f"Hydration failed: {projection.hydration_failed}",
+                f"Customer shared location: {customer_shared_location}",
             )
         )
 

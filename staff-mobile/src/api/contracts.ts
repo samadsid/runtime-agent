@@ -158,3 +158,17 @@ export const inventorySummarySchema = z.object({
   oldest_low_stock_products: z.array(productWithInventorySchema),
 });
 export type InventorySummary = z.infer<typeof inventorySummarySchema>;
+
+export const deliveryZoneStatusSchema = z.enum(["DRAFT", "ACTIVE", "INACTIVE"]);
+export const geoJsonBoundarySchema = z.object({
+  type: z.enum(["Polygon", "MultiPolygon"]), coordinates: z.array(z.unknown()),
+});
+export const deliveryZoneSchema = z.object({
+  id: uuidSchema, tenant_id: uuidSchema, name: z.string().min(1),
+  status: deliveryZoneStatusSchema, priority: z.number().int().nonnegative(),
+  version: z.number().int().positive(), created_at: dateSchema, updated_at: dateSchema,
+  boundary: geoJsonBoundarySchema.nullable(),
+});
+export type DeliveryZone = z.infer<typeof deliveryZoneSchema>;
+export const deliveryZonePageSchema = z.object({ items: z.array(deliveryZoneSchema), next_cursor: z.string().nullable() });
+export const deliveryZonePointResponseSchema = z.object({ serviceable: z.boolean(), zone_name: z.string().nullable(), zone_version: z.number().int().positive().nullable() });

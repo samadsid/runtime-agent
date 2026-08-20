@@ -7,7 +7,13 @@ from uuid import UUID, uuid4
 
 import asyncpg
 
-from commerce.models import ChannelName, SavedDeliveryAddress, SavedDeliveryProfile
+from commerce.models import (
+    ChannelName,
+    DeliveryLocationSnapshot,
+    SavedAddressServiceabilityStatus,
+    SavedDeliveryAddress,
+    SavedDeliveryProfile,
+)
 from commerce.repositories import (
     SavedDeliveryAddressNotFoundError,
     SavedDeliveryDetailsRepository,
@@ -69,6 +75,7 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
         consented_at: datetime,
         request_id: str,
         address_label: str,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> SavedDeliveryProfile:
         if self._connection is None:
             for attempt in range(3):
@@ -88,6 +95,7 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
                             consented_at,
                             request_id,
                             address_label,
+                            delivery_location,
                         )
                 except SavedDeliveryProfileConflictError:
                     raise
@@ -193,6 +201,7 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
                 address_label,
                 delivery_address,
                 True,
+                delivery_location,
             )
         row = await connection.fetchrow(
             """
@@ -384,6 +393,11 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
             """
             SELECT address.id, address.profile_id, address.label,
                    address.delivery_address, address.is_default, address.version,
+                   address.location_latitude,address.location_longitude,
+                   address.location_formatted_area,address.location_zone_id,
+                   address.location_address_details,
+                   address.location_zone_name,address.location_zone_version,
+                   address.location_checked_at,address.serviceability_status,
                    address.created_at, address.updated_at
             FROM saved_delivery_addresses AS address
             JOIN saved_delivery_profiles AS profile ON profile.id = address.profile_id
@@ -407,6 +421,11 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
             """
             SELECT address.id, address.profile_id, address.label,
                    address.delivery_address, address.is_default, address.version,
+                   address.location_latitude,address.location_longitude,
+                   address.location_formatted_area,address.location_zone_id,
+                   address.location_address_details,
+                   address.location_zone_name,address.location_zone_version,
+                   address.location_checked_at,address.serviceability_status,
                    address.created_at, address.updated_at
             FROM saved_delivery_addresses AS address
             JOIN saved_delivery_profiles AS profile ON profile.id = address.profile_id
@@ -425,6 +444,7 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
         label: str,
         delivery_address: str,
         set_as_default: bool,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> SavedDeliveryAddress:
         if self._connection is None:
             try:
@@ -433,7 +453,12 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
                     connection.transaction(),
                 ):
                     return await self._with(connection).add_address(
-                        tenant_id, profile_id, label, delivery_address, set_as_default
+                        tenant_id,
+                        profile_id,
+                        label,
+                        delivery_address,
+                        set_as_default,
+                        delivery_location,
                     )
             except SavedDeliveryAddressNotFoundError:
                 raise
@@ -448,6 +473,7 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
             label,
             delivery_address,
             set_as_default,
+            delivery_location,
         )
 
     async def update_address(
@@ -458,6 +484,7 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
         expected_version: int,
         label: str | None,
         delivery_address: str | None,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> SavedDeliveryAddress:
         if self._connection is None:
             async with self._pool.pool.acquire() as connection:
@@ -468,23 +495,39 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
                     expected_version,
                     label,
                     delivery_address,
+                    delivery_location,
                 )
         row = await self._connection.fetchrow(
             """
             UPDATE saved_delivery_addresses AS address
             SET label = COALESCE($5, address.label),
                 delivery_address = COALESCE($6, address.delivery_address),
+                location_latitude = CASE WHEN $7::numeric IS NULL THEN address.location_latitude ELSE $7 END,
+                location_longitude = CASE WHEN $7::numeric IS NULL THEN address.location_longitude ELSE $8 END,
+                location_formatted_area = CASE WHEN $7::numeric IS NULL THEN address.location_formatted_area ELSE $9 END,
+                location_address_details = CASE WHEN $7::numeric IS NULL THEN address.location_address_details ELSE $10 END,
+                location_zone_id = CASE WHEN $7::numeric IS NULL THEN address.location_zone_id ELSE $11 END,
+                location_zone_name = CASE WHEN $7::numeric IS NULL THEN address.location_zone_name ELSE $12 END,
+                location_zone_version = CASE WHEN $7::numeric IS NULL THEN address.location_zone_version ELSE $13 END,
+                location_checked_at = CASE WHEN $7::numeric IS NULL THEN address.location_checked_at ELSE $14 END,
+                serviceability_status = CASE WHEN $7::numeric IS NULL THEN address.serviceability_status ELSE 'SERVICEABLE' END,
                 version = address.version + 1,
                 updated_at = now()
             FROM saved_delivery_profiles AS profile
             WHERE address.id = $3 AND address.profile_id = $2
               AND profile.id = address.profile_id AND profile.tenant_id = $1
               AND address.version = $4
-              AND (COALESCE($5, address.label), COALESCE($6, address.delivery_address))
+              AND ((COALESCE($5, address.label), COALESCE($6, address.delivery_address))
                   IS DISTINCT FROM (address.label, address.delivery_address)
+                   OR $7::numeric IS NOT NULL)
             RETURNING address.id, address.profile_id, address.label,
                       address.delivery_address, address.is_default, address.version,
-                      address.created_at, address.updated_at
+                      address.created_at, address.updated_at,
+                      address.location_latitude,address.location_longitude,
+                      address.location_formatted_area,address.location_zone_id,
+                      address.location_address_details,
+                      address.location_zone_name,address.location_zone_version,
+                      address.location_checked_at,address.serviceability_status
             """,
             tenant_id,
             profile_id,
@@ -492,6 +535,14 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
             expected_version,
             label,
             delivery_address,
+            delivery_location.latitude if delivery_location else None,
+            delivery_location.longitude if delivery_location else None,
+            delivery_location.formatted_area if delivery_location else None,
+            delivery_location.address_details if delivery_location else None,
+            delivery_location.zone_id if delivery_location else None,
+            delivery_location.zone_name if delivery_location else None,
+            delivery_location.zone_version if delivery_location else None,
+            delivery_location.checked_at if delivery_location else None,
         )
         if row is not None:
             return self._address(row)
@@ -593,7 +644,11 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
             SET is_default = TRUE, version = version + 1, updated_at = now()
             WHERE profile_id = $1 AND id = $2
             RETURNING id, profile_id, label, delivery_address, is_default,
-                      version, created_at, updated_at
+                      version, created_at, updated_at,
+                      location_latitude,location_longitude,location_formatted_area,
+                      location_address_details,
+                      location_zone_id,location_zone_name,location_zone_version,
+                      location_checked_at,serviceability_status
             """,
             profile_id,
             address_id,
@@ -608,6 +663,7 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
         label: str,
         delivery_address: str,
         set_as_default: bool,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> SavedDeliveryAddress:
         profile = await connection.fetchval(
             """
@@ -632,16 +688,35 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
             """
             INSERT INTO saved_delivery_addresses (
                 id, profile_id, label, delivery_address, is_default,
-                version, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, 1, now(), now())
+                version, created_at, updated_at,location_latitude,location_longitude,
+                location_formatted_area,location_address_details,
+                location_zone_id,location_zone_name,
+                location_zone_version,location_checked_at,serviceability_status
+            ) VALUES ($1, $2, $3, $4, $5, 1, now(), now(),$6,$7,$8,$9,$10,$11,$12,$13,$14)
             RETURNING id, profile_id, label, delivery_address, is_default,
-                      version, created_at, updated_at
+                      version, created_at, updated_at,location_latitude,location_longitude,
+                      location_formatted_area,location_zone_id,location_zone_name,
+                      location_address_details,
+                      location_zone_version,location_checked_at,serviceability_status
             """,
             uuid4(),
             profile_id,
             label,
             delivery_address,
             set_as_default,
+            delivery_location.latitude if delivery_location else None,
+            delivery_location.longitude if delivery_location else None,
+            delivery_location.formatted_area if delivery_location else None,
+            delivery_location.address_details if delivery_location else None,
+            delivery_location.zone_id if delivery_location else None,
+            delivery_location.zone_name if delivery_location else None,
+            delivery_location.zone_version if delivery_location else None,
+            delivery_location.checked_at if delivery_location else None,
+            (
+                SavedAddressServiceabilityStatus.SERVICEABLE.value
+                if delivery_location
+                else SavedAddressServiceabilityStatus.LEGACY_UNVALIDATED.value
+            ),
         )
         return self._address(row)
 
@@ -670,11 +745,27 @@ class PostgresSavedDeliveryDetailsRepository(SavedDeliveryDetailsRepository):
 
     @staticmethod
     def _address(row: asyncpg.Record) -> SavedDeliveryAddress:
+        location = None
+        if row.get("location_latitude") is not None:
+            location = DeliveryLocationSnapshot(
+                latitude=row["location_latitude"],
+                longitude=row["location_longitude"],
+                zone_id=row["location_zone_id"],
+                zone_name=row["location_zone_name"],
+                zone_version=row["location_zone_version"],
+                formatted_area=row["location_formatted_area"],
+                address_details=row.get("location_address_details"),
+                checked_at=row["location_checked_at"],
+            )
         return SavedDeliveryAddress(
             id=row["id"],
             profile_id=row["profile_id"],
             label=row["label"],
             delivery_address=row["delivery_address"],
+            delivery_location=location,
+            serviceability_status=SavedAddressServiceabilityStatus(
+                row.get("serviceability_status", "LEGACY_UNVALIDATED")
+            ),
             is_default=row["is_default"],
             version=row["version"],
             created_at=row["created_at"],

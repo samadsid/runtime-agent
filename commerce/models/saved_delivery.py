@@ -6,6 +6,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .delivery_location import (
+    DeliveryLocationSnapshot,
+    PendingDeliveryLocation,
+    SavedAddressServiceabilityStatus,
+)
+
 
 class ChannelName(str, Enum):
     DEVELOPMENT_HTTP = "development_http"
@@ -46,6 +52,9 @@ class CustomerOnboardingState(BaseModel):
     pending_customer_name: str | None = None
     pending_phone_number: str | None = None
     pending_delivery_address: str | None = None
+    pending_delivery_location: PendingDeliveryLocation | None = None
+    replacement_address_id: UUID | None = None
+    replacement_address_version: int | None = Field(default=None, ge=1)
 
 
 class CustomerProfileProjection(BaseModel):
@@ -85,6 +94,10 @@ class SavedDeliveryAddress(BaseModel):
     profile_id: UUID
     label: str
     delivery_address: str
+    delivery_location: DeliveryLocationSnapshot | None = None
+    serviceability_status: SavedAddressServiceabilityStatus = (
+        SavedAddressServiceabilityStatus.LEGACY_UNVALIDATED
+    )
     is_default: bool
     version: int = Field(ge=1)
     created_at: datetime
@@ -97,6 +110,10 @@ class SavedAddressOption(BaseModel):
     address_id: UUID
     label: str
     delivery_address: str
+    delivery_location: DeliveryLocationSnapshot | None = None
+    serviceability_status: SavedAddressServiceabilityStatus = (
+        SavedAddressServiceabilityStatus.LEGACY_UNVALIDATED
+    )
     is_default: bool
     version: int = Field(ge=1)
 
@@ -111,6 +128,7 @@ class PendingSavedProfileUse(BaseModel):
     phone_number: str | None = None
     address_id: UUID | None = None
     delivery_address: str | None = None
+    delivery_location: DeliveryLocationSnapshot | None = None
 
 
 class SavedDetailsConfirmationReason(str, Enum):

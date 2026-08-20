@@ -2,6 +2,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
+from channels.models import MessageKind
 from commerce.models import CommerceSession, CustomerEntryKind, OnboardingStage
 from runtime.capabilities import CapabilityName, ExecutionContext
 from runtime.commands import ExecuteCapabilityCommand
@@ -46,6 +47,14 @@ class ExecuteNode:
         if context is None:
             context = ExecutionContext(conversation_id=state.conversation_id)
         command = state.planner_response.command
+        if (
+            context.inbound_message is not None
+            and context.inbound_message.message_kind is MessageKind.LOCATION
+        ):
+            command = ExecuteCapabilityCommand(
+                capability=CapabilityName.SUBMIT_DELIVERY_LOCATION.value,
+                arguments={},
+            )
         stable_incomplete = (
             context.channel_customer_id is not None
             and not state.customer_profile_projection.onboarding_completed
@@ -55,6 +64,9 @@ class ExecuteNode:
             CapabilityName.COLLECT_CUSTOMER_ONBOARDING_DETAILS.value,
             CapabilityName.CONFIRM_CUSTOMER_ONBOARDING.value,
             CapabilityName.SKIP_CUSTOMER_ONBOARDING.value,
+            CapabilityName.REQUEST_DELIVERY_LOCATION.value,
+            CapabilityName.SUBMIT_DELIVERY_LOCATION.value,
+            CapabilityName.COLLECT_DELIVERY_ADDRESS_DETAILS.value,
         }
         if (
             state.customer_profile_projection.onboarding_completed

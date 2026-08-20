@@ -44,3 +44,6 @@ class CapabilityName(str, Enum):
     CONFIRM_CUSTOMER_ONBOARDING = "confirm_customer_onboarding"
     SKIP_CUSTOMER_ONBOARDING = "skip_customer_onboarding"
     START_CUSTOMER_SHOPPING = "start_customer_shopping"
+    REQUEST_DELIVERY_LOCATION = "request_delivery_location"
+    SUBMIT_DELIVERY_LOCATION = "submit_delivery_location"
+    COLLECT_DELIVERY_ADDRESS_DETAILS = "collect_delivery_address_details"

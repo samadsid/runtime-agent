@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 
-from app.observability import DELIVERY_EVENTS, WEBHOOKS
+from app.observability import DELIVERY_EVENTS, WEBHOOKS, WHATSAPP_INBOUND_MESSAGES
 from infrastructure.channels.meta import MetaOwnershipMismatch, MetaWebhookParseError
 
 router = APIRouter()
@@ -77,6 +77,10 @@ async def meta_whatsapp_events(request: Request) -> Response:
         received_at=datetime.now(timezone.utc),
     )
     WEBHOOKS.labels("whatsapp", "inbound", "accepted" if inbound else "duplicate").inc()
+    for message in batch.inbound:
+        WHATSAPP_INBOUND_MESSAGES.labels(
+            message.message_kind.value.lower(), "accepted" if inbound else "duplicate"
+        ).inc()
     for event in batch.statuses:
         DELIVERY_EVENTS.labels("whatsapp", event.status.value.lower()).inc()
     return Response(status_code=200)

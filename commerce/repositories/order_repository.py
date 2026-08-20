@@ -5,6 +5,7 @@ from uuid import UUID
 
 from commerce.models import (
     ConfirmedOrderResult,
+    DeliveryLocationSnapshot,
     FulfilmentActor,
     Order,
     OrderStatus,
@@ -25,6 +26,7 @@ class OrderRepository(ABC):
         customer_name: str,
         phone_number: str,
         delivery_address: str,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> ConfirmedOrderResult: ...
 
     @abstractmethod
@@ -89,6 +91,10 @@ class OrderConfirmationPersistenceError(RuntimeError):
     pass
 
 
+class DeliveryLocationNotServiceableError(RuntimeError):
+    pass
+
+
 class OrderNotFoundError(LookupError):
     pass
 
@@ -99,7 +105,5 @@ class InvalidOrderTransitionError(ValueError):
 
 class CustomerCancellationNotAllowedError(ValueError):
     def __init__(self, status: OrderStatus) -> None:
-        super().__init__(
-            f"Customer cancellation is not allowed from {status.value}."
-        )
+        super().__init__(f"Customer cancellation is not allowed from {status.value}.")
         self.status = status

@@ -357,6 +357,20 @@ actions returned by the backend. Mobile status requests carry the authoritative 
 version and one idempotency key per logical action; the app never derives permissions,
 transition policy, inventory effects, notification behavior, or tenant identity.
 
+WhatsApp location attachments cross the signed webhook boundary as typed, trusted
+inbound data. The conversation history contains only a coordinate-free location
+event, and the planner receives only `customer_shared_location=true`; the selected
+capability reads the exact pin from the claimed inbound-message context. A commerce
+delivery service applies policy through a tenant-scoped delivery-zone repository,
+whose PostGIS `ST_Covers` query is the sole serviceability authority. Pending pins
+remain checkpointed business state until explicit profile consent, while saved and
+confirmed-order destinations are PostgreSQL snapshots.
+
+Delivery-zone administration uses the existing deterministic ADMIN staff path. The
+mobile map editor sends longitude-first GeoJSON to bounded API models; PostgreSQL
+normalizes and validates one canonical MultiPolygon. Zone mutations never enter the
+customer graph, and zone changes are rechecked inside order-creation transactions.
+
 The tenant-scoped staff dashboard summary is a query projection over orders. It returns
 bounded operational counts and a five-order actionable queue without entering the
 customer runtime, graph, planner, or capability registry.

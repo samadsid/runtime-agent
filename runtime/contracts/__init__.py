@@ -1,4 +1,4 @@
-from .customer_context import CustomerChannelContext
+from .customer_context import CustomerChannelContext, TrustedInboundMessageContext
 from .event import EventType, RuntimeEvent
 from .execution import (
     ApprovedOption,
@@ -32,4 +32,5 @@ __all__ = [
     "RuntimeEvent",
     "RuntimeRequest",
     "RuntimeResponse",
+    "TrustedInboundMessageContext",
 ]

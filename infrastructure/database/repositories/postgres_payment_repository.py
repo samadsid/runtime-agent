@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import asyncpg
 
 from commerce.models import (
+    DeliveryLocationSnapshot,
     OnlinePaymentReady,
     OrderStatus,
     PaymentAttempt,
@@ -18,7 +19,7 @@ from commerce.models import (
     StockUnavailable,
     VerifiedPaymentEvent,
 )
-from commerce.repositories import PaymentRepository
+from commerce.repositories import DeliveryLocationNotServiceableError, PaymentRepository
 from infrastructure.database import DatabasePool
 from infrastructure.database.public_order_numbers import allocate_public_order_number
 
@@ -53,6 +54,7 @@ class PostgresPaymentRepository(PaymentRepository):
         provider: str,
         expires_at: datetime,
         idempotency_key: str,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ):
         async with self._pool.pool.acquire() as connection, connection.transaction():
             existing_id = await connection.fetchval(
@@ -92,6 +94,19 @@ class PostgresPaymentRepository(PaymentRepository):
                 return StaleCheckout(
                     cart_id=cart_id, reason=StaleCheckoutReason.CART_CHANGED
                 )
+            if delivery_location is not None:
+                serviceable = await connection.fetchval(
+                    """SELECT EXISTS(SELECT 1 FROM delivery_zones
+                       WHERE tenant_id=$1 AND status='ACTIVE'
+                         AND ST_Covers(boundary,ST_SetSRID(ST_MakePoint($2,$3),4326)))""",
+                    tenant_id,
+                    delivery_location.longitude,
+                    delivery_location.latitude,
+                )
+                if not serviceable:
+                    raise DeliveryLocationNotServiceableError(
+                        "The reviewed delivery location is no longer serviceable."
+                    )
             rows = await connection.fetch(
                 """SELECT ci.product_id, ci.quantity, p.name product_name, p.unit,
                           p.price unit_price, p.currency
@@ -146,8 +161,12 @@ class PostgresPaymentRepository(PaymentRepository):
             )
             await connection.execute(
                 """INSERT INTO orders (id,tenant_id,public_order_number,source_cart_id,conversation_id,status,payment_method,
-                   customer_name,phone_number,delivery_address,created_at,confirmed_at)
-                   VALUES ($1,$2,$3,$4,$5,'AWAITING_PAYMENT','ONLINE',$6,$7,$8,now(),NULL)""",
+                   customer_name,phone_number,delivery_address,location_latitude,
+                   location_longitude,location_formatted_area,location_address_details,location_zone_id,
+                   location_zone_name,location_zone_version,location_checked_at,
+                   created_at,confirmed_at)
+                   VALUES ($1,$2,$3,$4,$5,'AWAITING_PAYMENT','ONLINE',$6,$7,$8,
+                           $9,$10,$11,$12,$13,$14,$15,$16,now(),NULL)""",
                 order_id,
                 tenant_id,
                 public_order_number,
@@ -156,6 +175,14 @@ class PostgresPaymentRepository(PaymentRepository):
                 customer_name,
                 phone_number,
                 delivery_address,
+                delivery_location.latitude if delivery_location else None,
+                delivery_location.longitude if delivery_location else None,
+                delivery_location.formatted_area if delivery_location else None,
+                delivery_location.address_details if delivery_location else None,
+                delivery_location.zone_id if delivery_location else None,
+                delivery_location.zone_name if delivery_location else None,
+                delivery_location.zone_version if delivery_location else None,
+                delivery_location.checked_at if delivery_location else None,
             )
             item_values = []
             for row in rows:
@@ -456,7 +483,8 @@ class PostgresPaymentRepository(PaymentRepository):
                 )
                 await connection.execute(
                     """UPDATE orders SET confirmed_at=now(),version=version+1,
-                              updated_at=now() WHERE id=$1""", attempt.order_id
+                              updated_at=now() WHERE id=$1""",
+                    attempt.order_id,
                 )
                 await self._transition(
                     connection,
@@ -602,7 +630,9 @@ class PostgresPaymentRepository(PaymentRepository):
             return
         await connection.execute(
             """UPDATE orders SET status=$2,version=version+1,updated_at=now()
-               WHERE id=$1""", order_id, target.value
+               WHERE id=$1""",
+            order_id,
+            target.value,
         )
         history_id = uuid4()
         await connection.execute(

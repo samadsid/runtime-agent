@@ -67,9 +67,11 @@ class PostgresChannelRepository:
                     """INSERT INTO channel_inbound_messages (
                            id,tenant_id,channel,provider,provider_message_id,
                            conversation_id,sender_id,recipient_id,body,message_kind,
+                           location_latitude,location_longitude,location_name,
+                           location_provider_address,
                            status,attempt_count,next_attempt_at,received_at
-                       ) VALUES ($1,$2,$3,'meta_cloud',$4,$5,$6,$7,$8,$9,
-                                 'RECEIVED',0,$10,$10)
+                       ) VALUES ($1,$2,$3,'meta_cloud',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+                                 'RECEIVED',0,$14,$14)
                        ON CONFLICT (provider,provider_message_id) DO NOTHING
                        RETURNING id""",
                     uuid4(),
@@ -81,6 +83,10 @@ class PostgresChannelRepository:
                     message.recipient_id,
                     message.body,
                     message.message_kind.value,
+                    message.location.latitude if message.location else None,
+                    message.location.longitude if message.location else None,
+                    message.location.name if message.location else None,
+                    message.location.provider_address if message.location else None,
                     received_at,
                 )
                 inbound_created += int(inserted is not None)
@@ -575,7 +581,22 @@ class PostgresChannelRepository:
 
     @staticmethod
     def _inbound(row: asyncpg.Record) -> InboundMessage:
-        return InboundMessage.model_validate(dict(row))
+        data = dict(row)
+        if data.get("message_kind") == MessageKind.LOCATION.value:
+            from commerce.models import InboundLocation
+
+            if (
+                data.get("location_latitude") is None
+                or data.get("location_longitude") is None
+            ):
+                raise ValueError("Persisted location message is missing coordinates.")
+            data["location"] = InboundLocation(
+                latitude=data.get("location_latitude"),
+                longitude=data.get("location_longitude"),
+                name=data.get("location_name"),
+                provider_address=data.get("location_provider_address"),
+            )
+        return InboundMessage.model_validate(data)
 
     @staticmethod
     def _outbound(row: asyncpg.Record) -> OutboundMessage:

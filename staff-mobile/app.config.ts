@@ -24,6 +24,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     throw new Error(`Unsupported EXPO_PUBLIC_APP_ENV: ${environment}`);
   }
   const profile = profiles[environment as keyof typeof profiles];
+  const googleMapsApiKey = process.env.GOOGLE_MAPS_ANDROID_API_KEY?.trim();
+  if (!googleMapsApiKey) {
+    throw new Error(
+      "GOOGLE_MAPS_ANDROID_API_KEY is required to render delivery-zone maps on Android.",
+    );
+  }
   return {
     ...config,
     name: profile.name,
@@ -44,6 +50,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     experiments: { typedRoutes: true },
     android: {
       package: profile.android,
+      config: {
+        googleMaps: {
+          apiKey: googleMapsApiKey,
+        },
+      },
     },
     ios: { bundleIdentifier: profile.ios, supportsTablet: true },
   };

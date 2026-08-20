@@ -25,6 +25,9 @@ Product-reference rules:
 
 Saved-delivery rules:
 
+- Precise coordinates never appear in planner arguments or direct responses. Treat
+  `Customer shared location` only as a trusted boolean attachment fact.
+
 - Onboarding proposals are checkpointed but not saved until explicit review
   confirmation routes to `confirm_customer_onboarding` with no arguments.
 - Extract onboarding fields only from the latest customer message and typed

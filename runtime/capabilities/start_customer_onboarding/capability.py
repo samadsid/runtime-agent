@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from commerce.models import CommerceSession, CustomerOnboardingState, OnboardingStage
+from commerce.models import (
+    ChannelName,
+    CommerceSession,
+    CustomerOnboardingState,
+    OnboardingStage,
+)
 from commerce.repositories import SavedDeliveryPersistenceError
 from commerce.services import SavedDeliveryDetailsService
 from runtime.capabilities import (
@@ -20,8 +25,13 @@ from runtime.contracts import (
 
 
 class StartCustomerOnboardingCapability(Capability[CommerceSession]):
-    def __init__(self, service: SavedDeliveryDetailsService) -> None:
+    def __init__(
+        self,
+        service: SavedDeliveryDetailsService,
+        require_whatsapp_location: bool = False,
+    ) -> None:
         self._service = service
+        self._require_whatsapp_location = require_whatsapp_location
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -113,6 +123,27 @@ class StartCustomerOnboardingCapability(Capability[CommerceSession]):
             pending_phone_number=phone,
             pending_delivery_address=address,
         )
+        requires_location = (
+            self._require_whatsapp_location and context.channel is ChannelName.WHATSAPP
+        )
+        if requires_location:
+            state = state.model_copy(update={"pending_delivery_address": None})
+            return CapabilityOutput(
+                session=input.session.model_copy(update={"customer_onboarding": state}),
+                outcome=GeneratedExecutionOutcome(
+                    status=ExecutionStatus.MISSING_INPUT,
+                    fragments=(
+                        ApprovedResponseFragment(
+                            id="delivery-location-requested",
+                            text="To save reusable delivery details, share your name and phone number plus the WhatsApp location attachment for the delivery destination.",
+                        ),
+                    ),
+                    follow_up=FollowUpRequest(
+                        id="share-onboarding-details-and-location",
+                        question="Please share any missing name or phone number and send the delivery destination using WhatsApp Location.",
+                    ),
+                ),
+            )
         outcome = (
             review_outcome(
                 state.model_copy(update={"stage": OnboardingStage.REVIEWING_DETAILS})

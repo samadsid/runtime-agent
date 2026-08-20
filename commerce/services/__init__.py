@@ -6,6 +6,7 @@ from .catalog_browse_service import (
     CatalogBrowseService,
 )
 from .customer_order_service import CustomerOrderService
+from .delivery_service import DeliveryService
 from .direct_cart_service import (
     DirectCartService,
     DirectCartServiceError,
@@ -14,6 +15,13 @@ from .direct_cart_service import (
     UnitPolicy,
 )
 from .fulfilment_service import FulfilmentService
+from .geocoding import (
+    DisabledForwardGeocoder,
+    DisabledReverseGeocoder,
+    ForwardGeocoder,
+    ForwardGeocodeResult,
+    ReverseGeocoder,
+)
 from .notification_templates import (
     NotificationTemplateError,
     NotificationTemplateRegistry,
@@ -42,10 +50,15 @@ __all__ = [
     "CatalogBrowseService",
     "ConfiguredPaymentMethodPolicy",
     "CustomerOrderService",
+    "DeliveryService",
     "DirectCartService",
     "DirectCartServiceError",
     "DirectProductQueryPolicy",
+    "DisabledForwardGeocoder",
+    "DisabledReverseGeocoder",
     "EligiblePaymentMethod",
+    "ForwardGeocodeResult",
+    "ForwardGeocoder",
     "FulfilmentService",
     "GuestSavedDeliveryDetailsError",
     "InvalidSavedDeliveryDetailsError",
@@ -58,6 +71,7 @@ __all__ = [
     "PaymentService",
     "PhoneValidationPolicy",
     "ProductResolutionPolicy",
+    "ReverseGeocoder",
     "SavedDeliveryDetailsService",
     "SearchProductService",
     "UnitPolicy",

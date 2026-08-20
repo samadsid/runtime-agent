@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from channels.models import (
@@ -12,6 +13,7 @@ from channels.models import (
     NormalizedWebhookBatch,
     OutboundStatus,
 )
+from commerce.models import InboundLocation
 
 _WAMID = re.compile(r"^wamid\.[A-Za-z0-9_:\-./+=]{1,248}$")
 _DIGITS = re.compile(r"^[1-9][0-9]{7,14}$")
@@ -39,11 +41,13 @@ class MetaWebhookParser:
         phone_number_id: str,
         max_text_chars: int,
         max_text_bytes: int,
+        decimal_places: int = 6,
     ) -> None:
         self._waba_id = waba_id
         self._phone_number_id = phone_number_id
         self._max_text_chars = max_text_chars
         self._max_text_bytes = max_text_bytes
+        self._coordinate_quantum = Decimal(1).scaleb(-decimal_places)
 
     def parse(self, raw: bytes) -> MetaWebhookBatch:
         try:
@@ -113,6 +117,7 @@ class MetaWebhookParser:
             return None
         kind = MessageKind.UNSUPPORTED
         body = ""
+        location = None
         if value.get("type") == "text" and isinstance(value.get("text"), dict):
             candidate = value["text"].get("body")
             if isinstance(candidate, str):
@@ -125,7 +130,48 @@ class MetaWebhookParser:
                     kind = MessageKind.TEXT
                 else:
                     body = ""
-        return NormalizedMetaInbound(wamid, f"+{sender}", recipient, body, kind)
+        elif value.get("type") == "location" and isinstance(
+            value.get("location"), dict
+        ):
+            raw_location = value["location"]
+            body = "[invalid-location]"
+            try:
+                if "live_period" in raw_location:
+                    raise ValueError("live_location_unsupported")
+                location = InboundLocation(
+                    latitude=self._decimal_coordinate(raw_location.get("latitude")),
+                    longitude=self._decimal_coordinate(raw_location.get("longitude")),
+                    name=self._bounded_optional_text(raw_location.get("name"), 200),
+                    provider_address=self._bounded_optional_text(
+                        raw_location.get("address"), 500
+                    ),
+                )
+                kind = MessageKind.LOCATION
+                body = ""
+            except (InvalidOperation, ValueError):
+                location = None
+        return NormalizedMetaInbound(
+            wamid, f"+{sender}", recipient, body, kind, location
+        )
+
+    def _decimal_coordinate(self, value: Any) -> Decimal:
+        if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
+            raise ValueError("invalid_coordinate")  # noqa: TRY004
+        coordinate = Decimal(str(value))
+        if not coordinate.is_finite():
+            raise ValueError("invalid_coordinate")
+        return coordinate.quantize(self._coordinate_quantum)
+
+    @staticmethod
+    def _bounded_optional_text(value: Any, maximum: int) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError("invalid_location_text")  # noqa: TRY004
+        normalized = " ".join(value.split())
+        if len(normalized) > maximum:
+            raise ValueError("invalid_location_text")
+        return normalized or None
 
     @staticmethod
     def _status(value: Any) -> NormalizedMetaStatus | None:

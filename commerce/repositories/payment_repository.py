@@ -5,6 +5,7 @@ from datetime import datetime
 from uuid import UUID
 
 from commerce.models import (
+    DeliveryLocationSnapshot,
     OnlinePaymentReady,
     Order,
     PaymentAttempt,
@@ -31,6 +32,7 @@ class PaymentRepository(ABC):
         provider: str,
         expires_at: datetime,
         idempotency_key: str,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> PaymentCreationResult: ...
 
     @abstractmethod

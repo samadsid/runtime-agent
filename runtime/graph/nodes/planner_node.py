@@ -27,7 +27,15 @@ class PlannerNode:
         session = state.session or CommerceSession()
         if isinstance(self._planner, Planner):
             planner_response = await self._planner.plan(
-                messages, session, state.customer_profile_projection
+                messages,
+                session,
+                state.customer_profile_projection,
+                bool(
+                    state.customer_context
+                    and state.customer_context.inbound_message
+                    and state.customer_context.inbound_message.message_kind.value
+                    == "LOCATION"
+                ),
             )
         else:
             # Preserve the narrow planner test-double protocol used by graph tests.

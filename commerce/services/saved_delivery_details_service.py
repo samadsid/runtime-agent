@@ -6,6 +6,7 @@ from uuid import UUID
 from commerce.models import (
     ChannelName,
     CustomerProfileProjection,
+    DeliveryLocationSnapshot,
     OnboardingStatus,
     ProfileField,
     SavedDeliveryAddress,
@@ -113,6 +114,7 @@ class SavedDeliveryDetailsService:
         delivery_address: str,
         consented_at: datetime,
         request_id: str | None,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> SavedDeliveryProfile:
         customer_id = self._require_customer(channel_customer_id)
         if request_id is None or not request_id.strip():
@@ -135,6 +137,7 @@ class SavedDeliveryDetailsService:
             consented_at,
             request_id,
             self.ONBOARDING_ADDRESS_LABEL,
+            delivery_location,
         )
 
     async def list_addresses(
@@ -221,12 +224,22 @@ class SavedDeliveryDetailsService:
         expected_version: int,
         label: str | None,
         delivery_address: str | None,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> SavedDeliveryAddress:
         self._require_customer(channel_customer_id)
         label = self._optional_text(label, "address label")
         delivery_address = self._optional_text(delivery_address, "delivery address")
-        if label is None and delivery_address is None:
+        if label is None and delivery_address is None and delivery_location is None:
             raise InvalidSavedDeliveryDetailsError("No address change was supplied.")
+        if delivery_location is None:
+            return await self._repository.update_address(
+                tenant_id,
+                profile_id,
+                address_id,
+                expected_version,
+                label,
+                delivery_address,
+            )
         return await self._repository.update_address(
             tenant_id,
             profile_id,
@@ -234,6 +247,7 @@ class SavedDeliveryDetailsService:
             expected_version,
             label,
             delivery_address,
+            delivery_location,
         )
 
     async def delete_address(

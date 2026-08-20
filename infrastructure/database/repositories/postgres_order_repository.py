@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import asyncpg
 
 from commerce.models import (
+    DeliveryLocationSnapshot,
     FulfilmentActor,
     FulfilmentActorType,
     Order,
@@ -22,7 +23,11 @@ from commerce.models import (
     StockShortage,
     StockUnavailable,
 )
-from commerce.repositories import OrderConfirmationPersistenceError, OrderRepository
+from commerce.repositories import (
+    DeliveryLocationNotServiceableError,
+    OrderConfirmationPersistenceError,
+    OrderRepository,
+)
 from infrastructure.database import DatabasePool
 from infrastructure.database.public_order_numbers import allocate_public_order_number
 
@@ -56,6 +61,7 @@ class PostgresOrderRepository(OrderRepository):
         customer_name: str,
         phone_number: str,
         delivery_address: str,
+        delivery_location: DeliveryLocationSnapshot | None = None,
     ) -> OrderConfirmed | StockUnavailable | StaleCheckout:
         if self._connection is None:
             for attempt in range(3):
@@ -77,6 +83,7 @@ class PostgresOrderRepository(OrderRepository):
                             customer_name,
                             phone_number,
                             delivery_address,
+                            delivery_location,
                         )
                 except asyncpg.PostgresError as error:
                     if error.sqlstate not in {"40P01", "40001"}:
@@ -183,6 +190,25 @@ class PostgresOrderRepository(OrderRepository):
                 cart_id=cart_id,
                 reason=StaleCheckoutReason.CART_CHANGED,
             )
+
+        if delivery_location is not None:
+            serviceable = await connection.fetchval(
+                """SELECT EXISTS(
+                     SELECT 1 FROM delivery_zones
+                     WHERE tenant_id=$1 AND status='ACTIVE'
+                       AND ST_Covers(
+                         boundary,
+                         ST_SetSRID(ST_MakePoint($2,$3),4326)
+                       )
+                   )""",
+                tenant_id,
+                delivery_location.longitude,
+                delivery_location.latitude,
+            )
+            if not serviceable:
+                raise DeliveryLocationNotServiceableError(
+                    "The reviewed delivery location is no longer serviceable."
+                )
 
         cart_rows = await connection.fetch(
             """
@@ -293,10 +319,14 @@ class PostgresOrderRepository(OrderRepository):
                 id, tenant_id, public_order_number, source_cart_id, conversation_id,
                 status, payment_method,
                 customer_name, phone_number, delivery_address,
+                location_latitude,location_longitude,location_formatted_area,
+                location_address_details,
+                location_zone_id,location_zone_name,location_zone_version,
+                location_checked_at,
                 created_at, confirmed_at
             ) VALUES (
                 $1, $2, $3, $4, $5, 'CONFIRMED', 'CASH_ON_DELIVERY',
-                $6, $7, $8, now(), now()
+                $6, $7, $8,$9,$10,$11,$12,$13,$14,$15,$16,now(), now()
             )
             """,
             order_id,
@@ -307,6 +337,14 @@ class PostgresOrderRepository(OrderRepository):
             customer_name,
             phone_number,
             delivery_address,
+            delivery_location.latitude if delivery_location else None,
+            delivery_location.longitude if delivery_location else None,
+            delivery_location.formatted_area if delivery_location else None,
+            delivery_location.address_details if delivery_location else None,
+            delivery_location.zone_id if delivery_location else None,
+            delivery_location.zone_name if delivery_location else None,
+            delivery_location.zone_version if delivery_location else None,
+            delivery_location.checked_at if delivery_location else None,
         )
         await connection.executemany(
             """
@@ -609,6 +647,10 @@ class PostgresOrderRepository(OrderRepository):
             """
             SELECT id, tenant_id, public_order_number, source_cart_id, conversation_id, status, payment_method,
                    customer_name, phone_number, delivery_address,
+                   location_latitude,location_longitude,location_formatted_area,
+                   location_address_details,
+                   location_zone_id,location_zone_name,location_zone_version,
+                   location_checked_at,
                    created_at, confirmed_at, version, updated_at
             FROM orders WHERE id = $1
             """,
@@ -635,6 +677,18 @@ class PostgresOrderRepository(OrderRepository):
             """,
             order_id,
         )
+        delivery_location = None
+        if row["location_latitude"] is not None:
+            delivery_location = DeliveryLocationSnapshot(
+                latitude=row["location_latitude"],
+                longitude=row["location_longitude"],
+                zone_id=row["location_zone_id"],
+                zone_name=row["location_zone_name"],
+                zone_version=row["location_zone_version"],
+                formatted_area=row["location_formatted_area"],
+                address_details=row["location_address_details"],
+                checked_at=row["location_checked_at"],
+            )
         return Order(
             id=row["id"],
             tenant_id=row["tenant_id"],
@@ -646,6 +700,7 @@ class PostgresOrderRepository(OrderRepository):
             customer_name=row["customer_name"],
             phone_number=row["phone_number"],
             delivery_address=row["delivery_address"],
+            delivery_location=delivery_location,
             created_at=row["created_at"],
             confirmed_at=row["confirmed_at"],
             version=row["version"],

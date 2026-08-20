@@ -62,11 +62,25 @@ Capability arguments:
 - `start_customer_onboarding`, `confirm_customer_onboarding`, and
   `skip_customer_onboarding` require no arguments.
 - `start_customer_shopping` requires no arguments.
+- `request_delivery_location` requires no arguments.
+- `submit_delivery_location` requires no arguments. Coordinates, message IDs, zones,
+  tenants, customers, and addresses are never planner arguments.
+- `collect_delivery_address_details` requires only an `address_details` string copied
+  from the latest customer message.
 - `collect_customer_onboarding_details` accepts optional `customer_name`,
   `phone_number`, and `delivery_address` strings. Pass only values confidently
   present in the latest customer message.
 
 Mandatory capability-routing rules:
+
+- When `Customer shared location` is true, execute `submit_delivery_location` with no
+  arguments. Never copy, infer, repair, round, or ask the LLM to provide coordinates.
+- When a checked delivery location is pending and the customer supplies flat/house,
+  floor, entrance, or landmark text, execute `collect_delivery_address_details`.
+- When a delivery location is required but no location attachment is present, execute
+  `request_delivery_location`. An explicit inability to share a location uses the
+  text-address fallback; a locality or PIN code alone never proves serviceability.
+- Sharing a location is neither save consent nor order confirmation.
 
 - If onboarding is incomplete and not skipped, route a greeting or first-contact
   message to `start_customer_onboarding`.

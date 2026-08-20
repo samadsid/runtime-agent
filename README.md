@@ -39,6 +39,12 @@ schema migrations before starting the API:
 alembic upgrade head
 ```
 
+Migration `022_delivery_location` requires a PostgreSQL installation where the
+PostGIS extension is available. When delivery serviceability is enabled, readiness
+fails unless PostGIS is installed. Configure active delivery boundaries through the
+ADMIN `/api/staff/v1/delivery-zones` API or the staff mobile Delivery Zones screen;
+never place production coverage in prompts or application code.
+
 Local development uses LangGraph's in-memory checkpointer by default. Set
 `CHECKPOINTER_BACKEND=postgres` in production; startup will initialize and
 migrate LangGraph's own checkpoint tables. `DEFAULT_TENANT_ID` remains the

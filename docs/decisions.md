@@ -1,5 +1,25 @@
 # Architecture Decisions
 
+## ADR-036
+
+Use tenant-owned PostGIS zones as the delivery-serviceability authority.
+
+Status
+
+Accepted
+
+Reason
+
+Provider location metadata, geocoders, locality/PIN text, and LLM output cannot
+define delivery coverage. Signed channel coordinates remain in trusted execution
+context, while active tenant-scoped MultiPolygons are checked with `ST_Covers` when
+received, when a saved location is selected, and inside the order transaction.
+Capabilities remain independent, the graph stays frozen, optional geocoding only
+enriches display text, and database failures fail closed without being described as
+outside-area coverage.
+
+---
+
 ## ADR-020
 
 Use typed deferred intent and deterministic customer-entry routing for category-led shopping.

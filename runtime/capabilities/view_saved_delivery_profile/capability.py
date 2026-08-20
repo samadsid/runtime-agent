@@ -79,6 +79,8 @@ class ViewSavedDeliveryProfileCapability(Capability[CommerceSession]):
                 delivery_address=address.delivery_address,
                 is_default=address.is_default,
                 version=address.version,
+                delivery_location=address.delivery_location,
+                serviceability_status=address.serviceability_status,
             )
             for address in addresses
         )

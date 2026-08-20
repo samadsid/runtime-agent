@@ -37,6 +37,7 @@ from runtime.contracts import (
     ExecutionStatus,
     GeneratedExecutionOutcome,
     Message,
+    TrustedInboundMessageContext,
 )
 from runtime.domain.commerce_runtime import CommerceRuntime
 from runtime.responses import ResponseGenerator
@@ -129,7 +130,11 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
                 if not acquired:
                     raise RuntimeError("conversation_busy")
                 if inbound.message_kind == MessageKind.UNSUPPORTED:
-                    approved = "Sorry, I can currently help only with text messages."
+                    approved = (
+                        "That location message is invalid or unsupported. Please send a standard one-time WhatsApp Location attachment."
+                        if inbound.body == "[invalid-location]"
+                        else "Sorry, I can currently help only with text messages and standard location attachments."
+                    )
                     if self._response_generator is None:
                         reply = approved
                     else:
@@ -141,7 +146,11 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
                                 status=ExecutionStatus.SUCCESS,
                                 fragments=(
                                     ApprovedResponseFragment(
-                                        id="unsupported-message-limitation",
+                                        id=(
+                                            "location-message-invalid"
+                                            if inbound.body == "[invalid-location]"
+                                            else "unsupported-message-limitation"
+                                        ),
                                         text=approved,
                                     ),
                                 ),
@@ -156,7 +165,11 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
                         conversation_id=inbound.conversation_id
                     )
                     conversation.add_message(
-                        Message.user(inbound.body).model_copy(update={"id": inbound.id})
+                        Message.user(
+                            inbound.body
+                            if inbound.message_kind is MessageKind.TEXT
+                            else "Customer shared a delivery location."
+                        ).model_copy(update={"id": inbound.id})
                     )
                     context = CustomerChannelContext(
                         tenant_id=inbound.tenant_id,
@@ -171,6 +184,15 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
                             previous_inbound_at is None
                             or inbound.received_at - previous_inbound_at
                             >= self._returning_inactivity
+                        ),
+                        inbound_message=TrustedInboundMessageContext(
+                            inbound_message_id=inbound.id,
+                            request_id=(
+                                f"{'meta' if inbound.provider == WhatsAppProviderName.META_CLOUD else 'twilio'}-"
+                                f"whatsapp:{inbound.provider_message_id}"
+                            ),
+                            message_kind=inbound.message_kind,
+                            location=inbound.location,
                         ),
                     )
                     result = await self._runtime.chat(conversation, context)

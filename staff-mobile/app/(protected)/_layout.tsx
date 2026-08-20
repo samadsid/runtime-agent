@@ -13,6 +13,7 @@ export default function ProtectedLayout() {
     <Tabs.Screen name="orders" options={{ title: "Orders", tabBarIcon: () => <AppIcon name="receipt-outline" color="brand" /> }} />
     <Tabs.Screen name="catalog" options={{ href: admin ? undefined : null, title: "Catalog", tabBarIcon: () => <AppIcon name="pricetags-outline" color="brand" /> }} />
     <Tabs.Screen name="inventory" options={{ href: admin ? undefined : null, title: "Inventory", tabBarIcon: () => <AppIcon name="cube-outline" color="brand" /> }} />
+    <Tabs.Screen name="delivery-zones" options={{ href: admin ? undefined : null, title: "Delivery Zones", tabBarIcon: () => <AppIcon name="map-outline" color="brand" /> }} />
     <Tabs.Screen name="account" options={{ title: "Account", tabBarIcon: () => <AppIcon name="person-outline" color="brand" /> }} />
     <Tabs.Screen name="gallery" options={{ href: null }} />
   </Tabs>;

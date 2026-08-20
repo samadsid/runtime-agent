@@ -7,6 +7,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .delivery_location import DeliveryLocationSnapshot
 from .fulfilment import FulfilmentActorType
 
 
@@ -65,6 +66,7 @@ class Order(BaseModel):
     customer_name: str
     phone_number: str
     delivery_address: str
+    delivery_location: DeliveryLocationSnapshot | None = None
     created_at: datetime
     confirmed_at: datetime | None
     version: int = Field(default=1, ge=1)

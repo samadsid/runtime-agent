@@ -149,6 +149,9 @@ class ConfirmSavedProfileUseCapability(Capability[CommerceSession]):
                 "delivery_address": (
                     checkout.delivery_address or pending.delivery_address
                 ),
+                "delivery_location": (
+                    checkout.delivery_location or pending.delivery_location
+                ),
             }
         )
         if all(

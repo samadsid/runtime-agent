@@ -15,6 +15,25 @@ npm run android
 
 Android API 24 is the configured minimum. HTTP is permitted only by the development build profile; staging and production configuration require HTTPS.
 
+## Android delivery-zone maps
+
+Enable **Maps SDK for Android** in the Google Cloud project, create an Android API
+key, and add it to `staff-mobile/.env`:
+
+```bash
+GOOGLE_MAPS_ANDROID_API_KEY=your-key
+```
+
+Restrict the key to the appropriate Android package and signing-certificate SHA-1.
+The development package is `com.commerceagent.staff.development`; staging is
+`com.commerceagent.staff.staging`; production is `com.commerceagent.staff`. Each
+signing certificate/package combination may require its own restricted key in the
+corresponding EAS environment.
+
+This value is embedded in the native Android manifest, so changing it requires a new
+development/preview build. Restarting Metro alone does not update an installed native
+build.
+
 ## Builds and tests
 
 `eas build --profile preview --platform android` creates the signed internal-testing APK after EAS credentials and the staging API URL are configured. Production produces an AAB but Play Store publication is outside this milestone.

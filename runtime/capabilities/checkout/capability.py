@@ -3,14 +3,17 @@ from __future__ import annotations
 from decimal import Decimal
 
 from commerce.models import (
+    ChannelName,
     CheckoutStage,
     CheckoutState,
     CommerceSession,
     PendingSavedProfileUse,
     SavedAddressOption,
+    ServiceabilityKind,
 )
 from commerce.services import (
     CartService,
+    DeliveryService,
     PaymentMethodPolicy,
     SavedDeliveryDetailsService,
 )
@@ -43,10 +46,14 @@ class CheckoutCapability(Capability[CommerceSession]):
         service: CartService,
         saved_details_service: SavedDeliveryDetailsService | None = None,
         payment_policy: PaymentMethodPolicy | None = None,
+        delivery_service: DeliveryService | None = None,
+        require_whatsapp_location: bool = False,
     ) -> None:
         self._service = service
         self._saved_details_service = saved_details_service
         self._payment_policy = payment_policy
+        self._delivery_service = delivery_service
+        self._require_whatsapp_location = require_whatsapp_location
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -113,6 +120,10 @@ class CheckoutCapability(Capability[CommerceSession]):
             saved_offer = await self._saved_details_offer(input, session)
             if saved_offer is not None:
                 return saved_offer
+            if self._location_required(input):
+                return CapabilityOutput(
+                    session=session, outcome=self._location_outcome()
+                )
             return CapabilityOutput(
                 session=session,
                 outcome=all_delivery_details_outcome(
@@ -127,6 +138,10 @@ class CheckoutCapability(Capability[CommerceSession]):
             and checkout.source_cart_version == cart.version
             and checkout.stage == CheckoutStage.COLLECTING_DETAILS
         ):
+            if self._location_required(input) and checkout.delivery_location is None:
+                return CapabilityOutput(
+                    session=session, outcome=self._location_outcome()
+                )
             return CapabilityOutput(
                 session=session,
                 outcome=missing_detail_outcome(checkout),
@@ -152,7 +167,8 @@ class CheckoutCapability(Capability[CommerceSession]):
                 checkout, cart.items, input.context.tenant_id, self._payment_policy
             )
             return CapabilityOutput(
-                session=session.model_copy(update={"checkout": checkout}), outcome=outcome
+                session=session.model_copy(update={"checkout": checkout}),
+                outcome=outcome,
             )
 
         checkout = CheckoutState(
@@ -218,7 +234,8 @@ class CheckoutCapability(Capability[CommerceSession]):
                         format_money(item.product.price, currency),
                         format_money(item.quantity * item.product.price, currency),
                     )
-                ) + (format_money(total, currency),),
+                )
+                + (format_money(total, currency),),
             ),
         )
 
@@ -240,12 +257,86 @@ class CheckoutCapability(Capability[CommerceSession]):
         if profile is None or not addresses:
             return None
         address = next((item for item in addresses if item.is_default), addresses[0])
+        checked_location = address.delivery_location
+        if self._location_required(input):
+            if checked_location is None:
+                return CapabilityOutput(
+                    session=session,
+                    outcome=GeneratedExecutionOutcome(
+                        status=ExecutionStatus.MISSING_INPUT,
+                        fragments=(
+                            ApprovedResponseFragment(
+                                id="saved-location-no-longer-serviceable",
+                                text="The saved text address needs an exact current delivery-location check.",
+                            ),
+                        ),
+                        follow_up=FollowUpRequest(
+                            id="share-delivery-location",
+                            question="Please send the destination using the WhatsApp Location attachment.",
+                        ),
+                    ),
+                )
+            assert self._delivery_service is not None
+            serviceability = await self._delivery_service.check_serviceability(
+                input.context.tenant_id,
+                checked_location.latitude,
+                checked_location.longitude,
+            )
+            if serviceability.kind is ServiceabilityKind.TEMPORARILY_UNAVAILABLE:
+                return CapabilityOutput(
+                    session=session,
+                    outcome=GeneratedExecutionOutcome(
+                        status=ExecutionStatus.FAILURE,
+                        fragments=(
+                            ApprovedResponseFragment(
+                                id="delivery-serviceability-temporarily-unavailable",
+                                text="The saved delivery location could not be checked temporarily; it was not rejected.",
+                            ),
+                        ),
+                        follow_up=FollowUpRequest(
+                            id="retry-saved-location",
+                            question="Would you like to retry the saved location check?",
+                        ),
+                    ),
+                )
+            if serviceability.kind is ServiceabilityKind.OUTSIDE_SERVICE_AREA:
+                return CapabilityOutput(
+                    session=session,
+                    outcome=GeneratedExecutionOutcome(
+                        status=ExecutionStatus.CONFLICT,
+                        fragments=(
+                            ApprovedResponseFragment(
+                                id="saved-location-no-longer-serviceable",
+                                text="The saved delivery location is no longer in the active delivery area.",
+                            ),
+                        ),
+                        follow_up=FollowUpRequest(
+                            id="share-another-delivery-location",
+                            question="Please share another delivery location.",
+                        ),
+                    ),
+                )
+            assert (
+                serviceability.zone_id
+                and serviceability.zone_name
+                and serviceability.zone_version
+            )
+            checked_location = checked_location.model_copy(
+                update={
+                    "zone_id": serviceability.zone_id,
+                    "zone_name": serviceability.zone_name,
+                    "zone_version": serviceability.zone_version,
+                    "checked_at": serviceability.checked_at,
+                }
+            )
         option = SavedAddressOption(
             address_id=address.id,
             label=address.label,
             delivery_address=address.delivery_address,
+            delivery_location=checked_location,
             is_default=address.is_default,
             version=address.version,
+            serviceability_status=address.serviceability_status,
         )
         pending = PendingSavedProfileUse(
             profile_id=profile.id,
@@ -253,6 +344,7 @@ class CheckoutCapability(Capability[CommerceSession]):
             phone_number=profile.phone_number,
             address_id=address.id,
             delivery_address=address.delivery_address,
+            delivery_location=checked_location,
         )
         fragments = [
             ApprovedResponseFragment(
@@ -300,6 +392,29 @@ class CheckoutCapability(Capability[CommerceSession]):
                     question="Would you like to use these saved delivery details?",
                 ),
                 protected_values=tuple(protected),
+            ),
+        )
+
+    def _location_required(self, input: CapabilityInput[CommerceSession]) -> bool:
+        return (
+            self._require_whatsapp_location
+            and input.context.channel is ChannelName.WHATSAPP
+            and self._delivery_service is not None
+        )
+
+    @staticmethod
+    def _location_outcome() -> GeneratedExecutionOutcome:
+        return GeneratedExecutionOutcome(
+            status=ExecutionStatus.MISSING_INPUT,
+            fragments=(
+                ApprovedResponseFragment(
+                    id="delivery-location-requested",
+                    text="An exact delivery-location check is required for WhatsApp checkout.",
+                ),
+            ),
+            follow_up=FollowUpRequest(
+                id="share-delivery-location",
+                question="Please send the delivery destination using the WhatsApp Location attachment, or say if sharing is unavailable.",
             ),
         )
 

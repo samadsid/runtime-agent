@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from commerce.models import (
     Cart,
     CartStatus,
+    ChannelName,
     CheckoutStage,
     CheckoutState,
     CommerceSession,
@@ -21,7 +22,10 @@ from commerce.models import (
     StockShortage,
     StockUnavailable,
 )
-from commerce.repositories import OrderConfirmationPersistenceError
+from commerce.repositories import (
+    DeliveryLocationNotServiceableError,
+    OrderConfirmationPersistenceError,
+)
 from commerce.services import OrderService, PaymentMethodPolicy
 from runtime.capabilities import (
     Capability,
@@ -55,10 +59,14 @@ class ConfirmOrderArguments(BaseModel):
 
 class ConfirmOrderCapability(Capability[CommerceSession]):
     def __init__(
-        self, service: OrderService, payment_policy: PaymentMethodPolicy | None = None
+        self,
+        service: OrderService,
+        payment_policy: PaymentMethodPolicy | None = None,
+        require_whatsapp_location: bool = False,
     ) -> None:
         self._service = service
         self._payment_policy = payment_policy
+        self._require_whatsapp_location = require_whatsapp_location
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -80,6 +88,36 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
 
         checkout = input.session.checkout
         if (
+            self._require_whatsapp_location
+            and input.context.channel is ChannelName.WHATSAPP
+            and checkout.delivery_location is None
+        ):
+            return CapabilityOutput(
+                session=input.session.model_copy(
+                    update={
+                        "checkout": checkout.model_copy(
+                            update={
+                                "stage": CheckoutStage.COLLECTING_DETAILS,
+                                "payment_method": None,
+                            }
+                        )
+                    }
+                ),
+                outcome=GeneratedExecutionOutcome(
+                    status=ExecutionStatus.MISSING_INPUT,
+                    fragments=(
+                        ApprovedResponseFragment(
+                            id="delivery-location-requested",
+                            text="The order needs an exact serviceable delivery location before confirmation.",
+                        ),
+                    ),
+                    follow_up=FollowUpRequest(
+                        id="share-delivery-location",
+                        question="Please send the delivery destination using WhatsApp Location.",
+                    ),
+                ),
+            )
+        if (
             checkout.stage != CheckoutStage.READY_TO_CONFIRM
             or checkout.source_cart_id is None
             or checkout.source_cart_version is None
@@ -87,6 +125,11 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
             or checkout.phone_number is None
             or checkout.delivery_address is None
             or checkout.payment_method != PaymentMethod.CASH_ON_DELIVERY
+            or (
+                self._require_whatsapp_location
+                and input.context.channel is ChannelName.WHATSAPP
+                and checkout.delivery_location is None
+            )
         ):
             return self._not_ready(input.session)
 
@@ -133,6 +176,32 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
                 customer_name=checkout.customer_name,
                 phone_number=checkout.phone_number,
                 delivery_address=checkout.delivery_address,
+                delivery_location=checkout.delivery_location,
+            )
+        except DeliveryLocationNotServiceableError:
+            checkout = checkout.model_copy(
+                update={
+                    "stage": CheckoutStage.COLLECTING_DETAILS,
+                    "delivery_location": None,
+                    "delivery_address": None,
+                    "payment_method": None,
+                }
+            )
+            return CapabilityOutput(
+                session=input.session.model_copy(update={"checkout": checkout}),
+                outcome=GeneratedExecutionOutcome(
+                    status=ExecutionStatus.CONFLICT,
+                    fragments=(
+                        ApprovedResponseFragment(
+                            id="saved-location-no-longer-serviceable",
+                            text="The reviewed delivery location is no longer in the active delivery area. The order was not created and the cart was preserved.",
+                        ),
+                    ),
+                    follow_up=FollowUpRequest(
+                        id="share-another-delivery-location",
+                        question="Please share another delivery location.",
+                    ),
+                ),
             )
         except OrderConfirmationPersistenceError:
             logger.exception(

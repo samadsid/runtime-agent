@@ -7,6 +7,13 @@ from .cart_repository import (
     InvalidCartQuantityError,
     StaleCartError,
 )
+from .delivery_zone_repository import (
+    DeliveryZoneConflictError,
+    DeliveryZoneNotFoundError,
+    DeliveryZonePersistenceError,
+    DeliveryZoneRepository,
+    InvalidDeliveryZoneGeometryError,
+)
 from .fulfilment_unit_of_work import FulfilmentUnitOfWork
 from .in_memory_product_repository import InMemoryProductRepository
 from .inventory_repository import InventoryRepository, InventoryStateConflictError
@@ -14,6 +21,7 @@ from .notification_outbox_repository import NotificationOutboxRepository
 from .order_repository import (
     CartNotAvailableForCheckoutError,
     CustomerCancellationNotAllowedError,
+    DeliveryLocationNotServiceableError,
     InsufficientStockError,
     InvalidOrderTransitionError,
     OrderConfirmationPersistenceError,
@@ -37,11 +45,17 @@ __all__ = [
     "CartPersistenceError",
     "CartRepository",
     "CustomerCancellationNotAllowedError",
+    "DeliveryLocationNotServiceableError",
+    "DeliveryZoneConflictError",
+    "DeliveryZoneNotFoundError",
+    "DeliveryZonePersistenceError",
+    "DeliveryZoneRepository",
     "FulfilmentUnitOfWork",
     "InMemoryProductRepository",
     "InsufficientStockError",
     "InvalidCartOrdinalError",
     "InvalidCartQuantityError",
+    "InvalidDeliveryZoneGeometryError",
     "InvalidOrderTransitionError",
     "InventoryRepository",
     "InventoryStateConflictError",
