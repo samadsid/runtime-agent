@@ -212,13 +212,30 @@ class CommerceSessionRenderer:
             )
             lines.append(
                 "Address: provided"
-                if onboarding.pending_delivery_address is not None
+                if onboarding.pending_address_details is not None
                 else "Address: missing"
             )
+            lines.append(f"Delivery input mode: {onboarding.delivery_input_mode.value}")
             lines.append(
                 "Checked delivery location: present"
                 if onboarding.pending_delivery_location is not None
                 else "Checked delivery location: missing"
+            )
+
+        pending_location = session.pending_customer_location
+        lines.append("Pending post-onboarding location:")
+        if pending_location is None:
+            lines.append("None.")
+        else:
+            lines.append("Serviceable location: present")
+            lines.append(
+                "Use: "
+                + (pending_location.use.value if pending_location.use else "not chosen")
+            )
+            lines.append(
+                "Building details: provided"
+                if pending_location.address_details is not None
+                else "Building details: missing"
             )
 
         return "\n".join(lines)

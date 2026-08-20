@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .delivery_location import (
     DeliveryLocationSnapshot,
@@ -26,10 +26,25 @@ class OnboardingStatus(str, Enum):
 class OnboardingStage(str, Enum):
     NOT_REQUIRED = "NOT_REQUIRED"
     NOT_STARTED = "NOT_STARTED"
-    COLLECTING_DETAILS = "COLLECTING_DETAILS"
-    REVIEWING_DETAILS = "REVIEWING_DETAILS"
+    COLLECTING_IDENTITY = "COLLECTING_IDENTITY"
+    COLLECTING_LOCATION = "COLLECTING_LOCATION"
+    COLLECTING_ADDRESS_DETAILS = "COLLECTING_ADDRESS_DETAILS"
+    REVIEWING_PROFILE = "REVIEWING_PROFILE"
     COMPLETED = "COMPLETED"
     SKIPPED = "SKIPPED"
+    # Read-only compatibility values for checkpoints written before spec 031.
+    COLLECTING_DETAILS = "COLLECTING_DETAILS"
+    REVIEWING_DETAILS = "REVIEWING_DETAILS"
+
+
+class DeliveryInputMode(str, Enum):
+    WHATSAPP_LOCATION = "WHATSAPP_LOCATION"
+    TEXT_ADDRESS = "TEXT_ADDRESS"
+
+
+class CustomerLocationUse(str, Enum):
+    SAVE_NEW_ADDRESS = "SAVE_NEW_ADDRESS"
+    TEMPORARY = "TEMPORARY"
 
 
 class CustomerEntryKind(str, Enum):
@@ -49,12 +64,59 @@ class CustomerOnboardingState(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     stage: OnboardingStage = OnboardingStage.NOT_STARTED
+    delivery_input_mode: DeliveryInputMode = DeliveryInputMode.TEXT_ADDRESS
     pending_customer_name: str | None = None
     pending_phone_number: str | None = None
-    pending_delivery_address: str | None = None
+    pending_address_details: str | None = None
     pending_delivery_location: PendingDeliveryLocation | None = None
     replacement_address_id: UUID | None = None
     replacement_address_version: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_checkpoint(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        legacy_address = data.pop("pending_delivery_address", None)
+        if legacy_address and not data.get("pending_address_details"):
+            data["pending_address_details"] = legacy_address
+        if (
+            "delivery_input_mode" not in data
+            and data.get("pending_delivery_location") is not None
+        ):
+            data["delivery_input_mode"] = DeliveryInputMode.WHATSAPP_LOCATION
+        stage = data.get("stage")
+        if stage in {
+            OnboardingStage.COLLECTING_DETAILS,
+            OnboardingStage.COLLECTING_DETAILS.value,
+            OnboardingStage.REVIEWING_DETAILS,
+            OnboardingStage.REVIEWING_DETAILS.value,
+        }:
+            has_identity = bool(
+                data.get("pending_customer_name") and data.get("pending_phone_number")
+            )
+            has_location = data.get("pending_delivery_location") is not None
+            has_address = bool(data.get("pending_address_details"))
+            if not has_identity:
+                data["stage"] = OnboardingStage.COLLECTING_IDENTITY
+            elif has_location and not has_address:
+                data["stage"] = OnboardingStage.COLLECTING_ADDRESS_DETAILS
+            elif has_address:
+                data["stage"] = OnboardingStage.REVIEWING_PROFILE
+            else:
+                data["stage"] = OnboardingStage.COLLECTING_ADDRESS_DETAILS
+        return data
+
+
+class PendingCustomerLocation(BaseModel):
+    """Serviceable post-onboarding pin awaiting explicit use and building details."""
+
+    model_config = ConfigDict(frozen=True)
+
+    delivery_location: PendingDeliveryLocation
+    use: CustomerLocationUse | None = None
+    address_details: str | None = None
 
 
 class CustomerProfileProjection(BaseModel):

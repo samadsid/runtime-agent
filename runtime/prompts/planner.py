@@ -75,8 +75,10 @@ class PlannerPromptBuilder(PromptBuilder):
                 + str(
                     session.customer_onboarding.stage
                     in {
-                        OnboardingStage.COLLECTING_DETAILS,
-                        OnboardingStage.REVIEWING_DETAILS,
+                        OnboardingStage.COLLECTING_IDENTITY,
+                        OnboardingStage.COLLECTING_LOCATION,
+                        OnboardingStage.COLLECTING_ADDRESS_DETAILS,
+                        OnboardingStage.REVIEWING_PROFILE,
                     }
                 ),
                 "Pending deferred intent: "

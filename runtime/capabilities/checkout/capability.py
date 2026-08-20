@@ -7,12 +7,13 @@ from commerce.models import (
     CheckoutStage,
     CheckoutState,
     CommerceSession,
-    PendingSavedProfileUse,
+    PaymentMethod,
     SavedAddressOption,
     ServiceabilityKind,
 )
 from commerce.services import (
     CartService,
+    ConfiguredPaymentMethodPolicy,
     DeliveryService,
     PaymentMethodPolicy,
     SavedDeliveryDetailsService,
@@ -51,7 +52,9 @@ class CheckoutCapability(Capability[CommerceSession]):
     ) -> None:
         self._service = service
         self._saved_details_service = saved_details_service
-        self._payment_policy = payment_policy
+        self._payment_policy = payment_policy or ConfiguredPaymentMethodPolicy(
+            (PaymentMethod.CASH_ON_DELIVERY,), online_operational=False
+        )
         self._delivery_service = delivery_service
         self._require_whatsapp_location = require_whatsapp_location
 
@@ -117,6 +120,9 @@ class CheckoutCapability(Capability[CommerceSession]):
                 update={"stage": CheckoutStage.COLLECTING_DETAILS}
             )
             session = session.model_copy(update={"checkout": checkout})
+            alternative = await self._pending_alternative(input, session)
+            if alternative is not None:
+                return alternative
             saved_offer = await self._saved_details_offer(input, session)
             if saved_offer is not None:
                 return saved_offer
@@ -338,62 +344,101 @@ class CheckoutCapability(Capability[CommerceSession]):
             version=address.version,
             serviceability_status=address.serviceability_status,
         )
-        pending = PendingSavedProfileUse(
-            profile_id=profile.id,
-            customer_name=profile.customer_name,
-            phone_number=profile.phone_number,
-            address_id=address.id,
-            delivery_address=address.delivery_address,
-            delivery_location=checked_location,
+        checkout = session.checkout.model_copy(
+            update={
+                "customer_name": session.checkout.customer_name
+                or profile.customer_name,
+                "phone_number": session.checkout.phone_number
+                or profile.phone_number,
+                "delivery_address": address.delivery_address,
+                "delivery_location": checked_location,
+            }
         )
-        fragments = [
-            ApprovedResponseFragment(
-                id="saved-delivery-details",
-                text="Saved Delivery Details",
-                kind=ResponseFragmentKind.SECTION,
+        session = session.model_copy(
+            update={
+                "checkout": checkout,
+                "recent_saved_addresses": (option,),
+                "pending_saved_profile_use": None,
+            }
+        )
+        if all(
+            (
+                checkout.customer_name,
+                checkout.phone_number,
+                checkout.delivery_address,
             )
-        ]
-        protected = [address.label, address.delivery_address]
-        if profile.customer_name is not None:
-            fragments.append(
-                ApprovedResponseFragment(
-                    id="saved-checkout-name",
-                    text=f"Name: {profile.customer_name}",
+        ):
+            checkout, outcome = await advance_to_payment(
+                checkout,
+                session.cart_items,
+                input.context.tenant_id,
+                self._payment_policy,
+            )
+            session = session.model_copy(update={"checkout": checkout})
+        else:
+            outcome = missing_detail_outcome(checkout)
+        return CapabilityOutput(session=session, outcome=outcome)
+
+    async def _pending_alternative(
+        self,
+        input: CapabilityInput[CommerceSession],
+        session: CommerceSession,
+    ) -> CapabilityOutput[CommerceSession] | None:
+        pending = session.pending_customer_location
+        if pending is None or pending.address_details is None:
+            return None
+        location = pending.delivery_location
+        display = ", ".join(
+            value for value in (location.formatted_area, pending.address_details) if value
+        )
+        checkout = session.checkout.model_copy(
+            update={
+                "delivery_address": display,
+                "delivery_location": location,
+            }
+        )
+        if (
+            self._saved_details_service is not None
+            and input.context.channel_customer_id is not None
+        ):
+            profile = await self._saved_details_service.get_profile(
+                input.context.tenant_id,
+                input.context.channel,
+                input.context.channel_customer_id,
+            )
+            if profile is not None:
+                checkout = checkout.model_copy(
+                    update={
+                        "customer_name": checkout.customer_name
+                        or profile.customer_name,
+                        "phone_number": checkout.phone_number
+                        or profile.phone_number,
+                    }
                 )
-            )
-            protected.append(profile.customer_name)
-        if profile.phone_number is not None:
-            masked_phone = self._mask_phone(profile.phone_number)
-            fragments.append(
-                ApprovedResponseFragment(
-                    id="saved-checkout-phone",
-                    text=f"Phone: {masked_phone}",
-                )
-            )
-            protected.append(masked_phone)
-        fragments.append(
-            ApprovedResponseFragment(
-                id="saved-checkout-address",
-                text=f"Address ({address.label}): {address.delivery_address}",
-            )
+        session = session.model_copy(
+            update={
+                "checkout": checkout,
+                "pending_customer_location": None,
+                "pending_saved_profile_use": None,
+            }
         )
-        return CapabilityOutput(
-            session=session.model_copy(
-                update={
-                    "recent_saved_addresses": (option,),
-                    "pending_saved_profile_use": pending,
-                }
-            ),
-            outcome=GeneratedExecutionOutcome(
-                status=ExecutionStatus.MISSING_INPUT,
-                fragments=tuple(fragments),
-                follow_up=FollowUpRequest(
-                    id="use-saved-delivery-details",
-                    question="Would you like to use these saved delivery details?",
-                ),
-                protected_values=tuple(protected),
-            ),
-        )
+        if all(
+            (
+                checkout.customer_name,
+                checkout.phone_number,
+                checkout.delivery_address,
+            )
+        ):
+            checkout, outcome = await advance_to_payment(
+                checkout,
+                session.cart_items,
+                input.context.tenant_id,
+                self._payment_policy,
+            )
+            session = session.model_copy(update={"checkout": checkout})
+        else:
+            outcome = missing_detail_outcome(checkout)
+        return CapabilityOutput(session=session, outcome=outcome)
 
     def _location_required(self, input: CapabilityInput[CommerceSession]) -> bool:
         return (

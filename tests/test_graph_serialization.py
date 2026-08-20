@@ -14,16 +14,22 @@ from commerce.models import (
     CheckoutStage,
     CheckoutState,
     CommerceSession,
+    CustomerLocationUse,
+    CustomerOnboardingState,
     DeferredCustomerIntent,
     DeferredCustomerIntentKind,
     DeliveryDetailField,
+    DeliveryInputMode,
     DeliveryLocationSnapshot,
+    OnboardingStage,
     OrderStatus,
     OrderSummary,
     PaymentMethod,
     PendingCartAddition,
     PendingCartClear,
     PendingCartProductOption,
+    PendingCustomerLocation,
+    PendingDeliveryLocation,
     PendingOrderCancellation,
     Product,
     ProductStatus,
@@ -41,6 +47,20 @@ def test_configured_serializer_allows_direct_order_status_enum() -> None:
     restored = serializer.loads_typed(serializer.dumps_typed(OrderStatus.CONFIRMED))
 
     assert restored is OrderStatus.CONFIRMED
+
+
+def test_legacy_onboarding_checkpoint_values_normalize_to_canonical_state() -> None:
+    restored = CustomerOnboardingState.model_validate(
+        {
+            "stage": "REVIEWING_DETAILS",
+            "pending_customer_name": "Samad",
+            "pending_phone_number": "9999999999",
+            "pending_delivery_address": "B-68, Delhi",
+        }
+    )
+
+    assert restored.stage is OnboardingStage.REVIEWING_PROFILE
+    assert restored.pending_address_details == "B-68, Delhi"
 
 
 @pytest.mark.parametrize(
@@ -65,6 +85,26 @@ def test_configured_serializer_round_trips_durable_commerce_models(
         unit="kg",
     )
     session = CommerceSession(
+        customer_onboarding=CustomerOnboardingState(
+            stage=OnboardingStage.COLLECTING_LOCATION,
+            delivery_input_mode=DeliveryInputMode.WHATSAPP_LOCATION,
+            pending_customer_name="Samad",
+            pending_phone_number="9999999999",
+        ),
+        pending_customer_location=PendingCustomerLocation(
+            delivery_location=PendingDeliveryLocation(
+                latitude=Decimal("28.612345"),
+                longitude=Decimal("77.234567"),
+                zone_id=uuid4(),
+                zone_name="Delhi East",
+                zone_version=2,
+                formatted_area="New Zafrabad, Delhi",
+                checked_at=datetime.now(timezone.utc),
+                source_inbound_message_id=uuid4(),
+            ),
+            use=CustomerLocationUse.TEMPORARY,
+            address_details="B-68, 2nd Floor",
+        ),
         recent_product_results=(product,),
         selected_product=product,
         cart_items=(CartItem(product=product, quantity=Decimal(2)),),
@@ -170,6 +210,12 @@ def test_configured_serializer_round_trips_durable_commerce_models(
     restored = serializer.loads_typed(encoded)
 
     assert restored == session
+    assert restored.customer_onboarding.stage is OnboardingStage.COLLECTING_LOCATION
+    assert (
+        restored.customer_onboarding.delivery_input_mode
+        is DeliveryInputMode.WHATSAPP_LOCATION
+    )
+    assert restored.pending_customer_location == session.pending_customer_location
     assert restored.cart_items[0].quantity == Decimal(2)
     assert restored.pending_cart_clear == session.pending_cart_clear
     assert restored.pending_cart_clear.cart_id == cart_id

@@ -12,7 +12,10 @@ from commerce.models import (
     CheckoutStage,
     CheckoutState,
     CommerceSession,
+    CustomerLocationUse,
     PaymentMethod,
+    PendingCustomerLocation,
+    PendingDeliveryLocation,
     PendingSavedDetailsSave,
     PendingSavedProfileUse,
     Product,
@@ -480,20 +483,74 @@ async def test_checkout_proactively_offers_default_saved_delivery_details(
     rendered = "\n".join(fragment.text for fragment in offer.outcome.fragments)
     assert "Name: Samad" in rendered
     assert "Phone: ******7170" in rendered
-    assert "Address (Home): B-68 New Zafrabad" in rendered
+    assert "Address: B-68 New Zafrabad" in rendered
     assert "9560717170" not in rendered
-    assert offer.outcome.follow_up.id == "use-saved-delivery-details"
-    assert offer.session.checkout.delivery_address is None
-    assert offer.session.pending_saved_profile_use is not None
+    assert offer.outcome.follow_up.id == "confirm-order-placement"
+    assert offer.session.checkout.customer_name == "Samad"
+    assert offer.session.checkout.phone_number == "9560717170"
+    assert offer.session.checkout.delivery_address == "B-68 New Zafrabad"
+    assert offer.session.checkout.stage == CheckoutStage.READY_TO_CONFIRM
+    assert offer.session.pending_saved_profile_use is None
 
-    accepted = await ConfirmSavedProfileUseCapability(service).execute(
-        capability_input(offer.session, context, {"confirmed": True})
+
+@pytest.mark.asyncio
+async def test_explicit_pending_location_overrides_default_for_next_checkout(
+    saved_fixture,
+) -> None:
+    _, service, context = saved_fixture
+    await service.save_details(
+        context.tenant_id,
+        context.channel,
+        context.channel_customer_id,
+        "Samad",
+        "9560717170",
+        "Home",
+        "Default address",
+        True,
+    )
+    item = CartItem(
+        product=Product(id=uuid4(), name="Chicken", price=Decimal(320), unit="kg"),
+        quantity=Decimal(1),
+    )
+    cart_repository = InMemoryCartRepository(items=(item,))
+    seeded_cart = cart_repository.carts.pop((UUID(int=0), UUID(int=0)))
+    cart_repository.carts[(context.tenant_id, context.conversation_id)] = (
+        seeded_cart.model_copy(
+            update={
+                "tenant_id": context.tenant_id,
+                "conversation_id": context.conversation_id,
+            }
+        )
+    )
+    pending = PendingCustomerLocation(
+        delivery_location=PendingDeliveryLocation(
+            latitude=Decimal("28.6"),
+            longitude=Decimal("77.2"),
+            zone_id=uuid4(),
+            zone_name="Delhi East",
+            zone_version=1,
+            formatted_area="New area",
+            address_details="B-68, 2nd Floor",
+            checked_at=datetime.now(timezone.utc),
+            source_inbound_message_id=uuid4(),
+        ),
+        use=CustomerLocationUse.TEMPORARY,
+        address_details="B-68, 2nd Floor",
+    )
+    capability = CheckoutCapability(
+        CartService(cart_repository), saved_details_service=service
     )
 
-    assert accepted.session.checkout.customer_name == "Samad"
-    assert accepted.session.checkout.phone_number == "9560717170"
-    assert accepted.session.checkout.delivery_address == "B-68 New Zafrabad"
-    assert accepted.session.checkout.stage == CheckoutStage.READY_TO_CONFIRM
+    review = await capability.execute(
+        capability_input(
+            CommerceSession(pending_customer_location=pending), context
+        )
+    )
+    ready = await capability.execute(capability_input(review.session, context))
+
+    assert ready.session.checkout.delivery_address == "New area, B-68, 2nd Floor"
+    assert ready.session.checkout.delivery_address != "Default address"
+    assert ready.session.pending_customer_location is None
 
 
 @pytest.mark.asyncio

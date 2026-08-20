@@ -250,6 +250,33 @@ class SavedDeliveryDetailsService:
             delivery_location,
         )
 
+    async def add_address(
+        self,
+        tenant_id: UUID,
+        channel_customer_id: str | None,
+        profile_id: UUID,
+        label: str,
+        delivery_address: str,
+        delivery_location: DeliveryLocationSnapshot,
+        *,
+        set_as_default: bool = False,
+    ) -> SavedDeliveryAddress:
+        self._require_customer(channel_customer_id)
+        normalized_label = self._optional_text(label, "address label")
+        normalized_address = self._optional_text(delivery_address, "delivery address")
+        if normalized_label is None or normalized_address is None:
+            raise InvalidSavedDeliveryDetailsError(
+                "An address label and delivery address are required."
+            )
+        return await self._repository.add_address(
+            tenant_id,
+            profile_id,
+            normalized_label,
+            normalized_address,
+            set_as_default,
+            delivery_location,
+        )
+
     async def delete_address(
         self,
         tenant_id: UUID,

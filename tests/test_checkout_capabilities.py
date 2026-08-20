@@ -192,6 +192,8 @@ async def test_confirmation_snapshots_cart_closes_it_and_is_idempotent() -> None
     order_repository = InMemoryOrderRepository(cart_repository)
     service = OrderService(order_repository)
     session = CommerceSession(
+        selected_product=chicken,
+        recent_product_results=(chicken,),
         cart_items=cart.items,
         checkout=CheckoutState(
             stage=CheckoutStage.READY_TO_CONFIRM,
@@ -216,6 +218,8 @@ async def test_confirmation_snapshots_cart_closes_it_and_is_idempotent() -> None
     assert output.outcome.status == ExecutionStatus.SUCCESS
     assert output.session.cart_items == ()
     assert output.session.checkout == CheckoutState()
+    assert output.session.selected_product is None
+    assert output.session.recent_product_results == ()
     assert isinstance(retried, OrderConfirmed)
     assert first.id == retried.order.id
     assert len(order_repository.orders) == 1

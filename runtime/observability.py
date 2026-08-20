@@ -10,6 +10,7 @@ class CustomerJourneyObserver(Protocol):
     def category_selection(self, outcome: str) -> None: ...
     def product_view(self, outcome: str) -> None: ...
     def expired_reference(self, kind: str) -> None: ...
+    def onboarding_event(self, event: str, outcome: str) -> None: ...
 
 
 class NullCustomerJourneyObserver:
@@ -29,4 +30,7 @@ class NullCustomerJourneyObserver:
         pass
 
     def expired_reference(self, kind: str) -> None:
+        pass
+
+    def onboarding_event(self, event: str, outcome: str) -> None:
         pass

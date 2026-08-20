@@ -8,12 +8,16 @@ from channels.models import MessageKind
 from commerce.models import (
     ChannelName,
     CommerceSession,
+    CustomerLocationUse,
     CustomerOnboardingState,
+    DeliveryInputMode,
     DeliveryZone,
     DeliveryZoneStatus,
     InboundLocation,
     OnboardingStage,
     OnboardingStatus,
+    PendingCustomerLocation,
+    PendingDeliveryLocation,
     SavedDeliveryAddress,
     SavedDeliveryProfile,
     ServiceabilityKind,
@@ -21,6 +25,12 @@ from commerce.models import (
 from commerce.repositories import DeliveryZoneRepository
 from commerce.services import DeliveryService, DisabledReverseGeocoder
 from runtime.capabilities import CapabilityInput, ExecutionContext
+from runtime.capabilities.choose_customer_location_use import (
+    ChooseCustomerLocationUseCapability,
+)
+from runtime.capabilities.collect_delivery_address_details import (
+    CollectDeliveryAddressDetailsCapability,
+)
 from runtime.capabilities.submit_delivery_location import (
     SubmitDeliveryLocationCapability,
 )
@@ -72,9 +82,17 @@ class SavedDetails:
             created_at=now,
             updated_at=now,
         )
+        self.added: list[tuple[object, ...]] = []
 
     async def list_addresses(self, tenant_id, channel, customer_id):
         return self.profile, (self.address,)
+
+    async def get_profile(self, tenant_id, channel, customer_id):
+        return self.profile
+
+    async def add_address(self, *args, **kwargs):
+        self.added.append((*args, kwargs))
+        return self.address
 
 
 def active_zone() -> DeliveryZone:
@@ -115,7 +133,8 @@ async def test_submit_location_reads_only_trusted_attachment_and_stores_pending(
     )
     session = CommerceSession(
         customer_onboarding=CustomerOnboardingState(
-            stage=OnboardingStage.COLLECTING_DETAILS,
+            stage=OnboardingStage.COLLECTING_LOCATION,
+            delivery_input_mode=DeliveryInputMode.WHATSAPP_LOCATION,
             pending_customer_name="Samad",
             pending_phone_number="9999999999",
         )
@@ -166,7 +185,7 @@ async def test_submit_location_rejects_llm_coordinate_arguments() -> None:
 
 
 @pytest.mark.asyncio
-async def test_returning_customer_location_starts_version_bound_replacement_review() -> (
+async def test_returning_customer_location_requires_explicit_save_or_temporary_choice() -> (
     None
 ):
     saved = SavedDetails()
@@ -194,8 +213,81 @@ async def test_returning_customer_location_starts_version_bound_replacement_revi
     output = await capability.execute(
         CapabilityInput(data={}, session=session, context=context)
     )
-    proposal = output.session.customer_onboarding
-    assert proposal.stage is OnboardingStage.COLLECTING_DETAILS
-    assert proposal.replacement_address_id == saved.address.id
-    assert proposal.replacement_address_version == 4
-    assert proposal.pending_delivery_address is None
+    assert output.session.customer_onboarding.stage is OnboardingStage.COMPLETED
+    pending = output.session.pending_customer_location
+    assert pending is not None
+    assert pending.use is None
+    assert output.outcome.follow_up is not None
+    assert output.outcome.follow_up.id == "choose-customer-location-use"
+
+
+@pytest.mark.asyncio
+async def test_post_onboarding_location_can_be_selected_temporarily_without_saving() -> None:
+    pending = PendingDeliveryLocation(
+        latitude=Decimal("28.6"),
+        longitude=Decimal("77.2"),
+        zone_id=uuid4(),
+        zone_name="Delhi East",
+        zone_version=1,
+        checked_at=datetime.now(timezone.utc),
+        source_inbound_message_id=uuid4(),
+    )
+    session = CommerceSession(
+        customer_onboarding=CustomerOnboardingState(stage=OnboardingStage.COMPLETED),
+        pending_customer_location=PendingCustomerLocation(delivery_location=pending),
+    )
+    selected = await ChooseCustomerLocationUseCapability().execute(
+        CapabilityInput(data={"save_address": False}, session=session, context=ExecutionContext())
+    )
+    completed = await CollectDeliveryAddressDetailsCapability(object()).execute(
+        CapabilityInput(
+            data={"address_details": "B-68, 2nd Floor"},
+            session=selected.session,
+            context=ExecutionContext(),
+        )
+    )
+
+    retained = completed.session.pending_customer_location
+    assert retained is not None
+    assert retained.use is CustomerLocationUse.TEMPORARY
+    assert retained.address_details == "B-68, 2nd Floor"
+    assert completed.outcome.fragments[0].id == "temporary-delivery-address-ready"
+
+
+@pytest.mark.asyncio
+async def test_saving_post_onboarding_location_adds_non_default_address() -> None:
+    saved = SavedDetails()
+    pending = PendingDeliveryLocation(
+        latitude=Decimal("28.6"),
+        longitude=Decimal("77.2"),
+        zone_id=uuid4(),
+        zone_name="Delhi East",
+        zone_version=1,
+        checked_at=datetime.now(timezone.utc),
+        source_inbound_message_id=uuid4(),
+    )
+    session = CommerceSession(
+        customer_onboarding=CustomerOnboardingState(stage=OnboardingStage.COMPLETED),
+        pending_customer_location=PendingCustomerLocation(delivery_location=pending),
+    )
+    context = ExecutionContext(
+        tenant_id=UUID(int=1),
+        channel=ChannelName.WHATSAPP,
+        channel_customer_id="+919999999999",
+    )
+    selected = await ChooseCustomerLocationUseCapability().execute(
+        CapabilityInput(data={"save_address": True}, session=session, context=context)
+    )
+    completed = await CollectDeliveryAddressDetailsCapability(
+        object(), saved  # type: ignore[arg-type]
+    ).execute(
+        CapabilityInput(
+            data={"address_details": "B-68, 2nd Floor"},
+            session=selected.session,
+            context=context,
+        )
+    )
+
+    assert completed.session.pending_customer_location is not None
+    assert len(saved.added) == 1
+    assert saved.added[0][-1] == {"set_as_default": False}

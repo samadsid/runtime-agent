@@ -2,6 +2,31 @@
 
 ## Completed
 
+### Sequential Customer Onboarding
+
+- First-time customers receive one greeting and only the next sequential request:
+  identity, trusted location, building details, profile review, then confirmation
+- Sparse identity updates retain previously valid values; rejected locations do not
+  replace the last serviceable proposal
+- WhatsApp location-first and explicit text-address fallback are persisted channel
+  modes, preventing ordinary text from bypassing location collection
+- Reviews mask phone numbers and omit coordinates; atomic persistence occurs only
+  after explicit confirmation, followed by deferred intent or active categories
+- Approved outcomes contain one coherent follow-up and cannot select the legacy
+  combined name, phone, location, and complete-address prompt
+
+The graph remains `START → PlannerNode → ExecuteNode → ResponseNode → END`.
+
+### Post-Onboarding Delivery Location Intent
+
+- New pins from completed customers never restart onboarding or overwrite the
+  default/saved address
+- Serviceable pins require an explicit saved-non-default versus temporary choice,
+  followed by building details
+- The explicit alternative is selected for the active or next checkout; absent that
+  choice, checkout automatically uses the current default saved address
+- Accidental or serviceability-only pins cause no durable address mutation
+
 ### WhatsApp Delivery Location and Serviceability
 
 - Signed Meta location attachments normalize to bounded provider-neutral Decimal
@@ -31,6 +56,8 @@ The graph remains `START → PlannerNode → ExecuteNode → ResponseNode → EN
   distinguished by trusted runtime state
 - Orders have immutable tenant-scoped public numbers used by customer, notification,
   and staff projections while UUIDs remain internal relationship identities
+- Successful order completion clears stale product/catalog selection state, so a
+  later named quantity request starts a new cart instead of resolving an old ordinal
 
 The graph remains `START → PlannerNode → ExecuteNode → ResponseNode → END`.
 

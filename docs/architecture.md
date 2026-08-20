@@ -235,6 +235,21 @@ continuation failures retain the projection; successful or terminal continuation
 clear it. Capabilities do not invoke other capabilities and PostgreSQL remains
 authoritative for every resumed business operation.
 
+`CommerceSession.customer_onboarding` is the single checkpointed source for an
+unconfirmed profile proposal. Its deterministic stage advances through identity,
+delivery location (when required by channel policy), building details, and profile
+review. Partial merges preserve valid values, trusted channel context is the only
+source of coordinates, and only successful durable confirmation marks the workflow
+complete. Text-address fallback is an explicit persisted mode change rather than an
+inference from arbitrary text.
+
+After onboarding, a serviceable unsolicited location is stored separately as a
+pending alternative and never reopens onboarding or mutates a saved address. The
+customer must explicitly choose new non-default saved address versus temporary use,
+then provide building details. A completed alternative overrides the default only
+for the active or next checkout; otherwise checkout deterministically selects the
+current default saved address without another confirmation.
+
 For an onboarded customer's greeting or broad discovery request, category-led entry
 loads the first current tenant-scoped category page. Category and product choices use
 the existing catalog browse state and isolated ordinal namespaces; direct product,
@@ -258,6 +273,12 @@ confirmation can clear only the exact reviewed cart version.
 Confirmed orders and immutable order-item snapshots are authoritative in
 PostgreSQL. Order creation and cart closure occur in one repository transaction;
 the source cart uniquely identifies an idempotent confirmation.
+
+Successful COD confirmation or online-payment creation also closes the prior
+interaction namespace: selected product, recent search results, catalog page, and
+pending direct-add choices are cleared with checkout state. A later named
+product-and-quantity request therefore starts a fresh cart journey and cannot resolve
+against stale pre-order ordinals.
 
 Product inventory balances and order reservations are also authoritative in
 PostgreSQL. Confirmation locks balances and creates reservations in the same

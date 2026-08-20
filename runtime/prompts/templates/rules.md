@@ -31,8 +31,10 @@ Saved-delivery rules:
 - Onboarding proposals are checkpointed but not saved until explicit review
   confirmation routes to `confirm_customer_onboarding` with no arguments.
 - Extract onboarding fields only from the latest customer message and typed
-  pending state. Omit uncertain values and ask one question for all unresolved
-  fields.
+  pending state. Omit uncertain values and ask exactly one concise question for
+  only the next requirement selected by the canonical onboarding stage.
+- Never repeat an onboarding request in both a factual fragment and its follow-up,
+  and never expose internal stage terminology or claim that a phone was verified.
 
 - Saved-address ordinals refer only to the most recent structured saved-address list.
 - Never reuse a saved-address ordinal as a product, cart, stock-recovery, order, or order-item ordinal.
@@ -65,6 +67,10 @@ Saved-delivery rules:
 
 Cart-reference rules:
 
+- After an order is completed, a new named product plus quantity request starts a
+  fresh cart journey through `add_product_to_cart`.
+- A number attached to a quantity unit is a quantity, never a product, catalog,
+  cart, recovery, saved-address, or order ordinal.
 - A quantity after a selected product belongs to `add_to_cart`. A quantity with
   purchase intent also belongs to `add_to_cart` when there is exactly one recent
   product result and no selected product.

@@ -10,6 +10,11 @@ CUSTOMER_ONBOARDING_CONTINUATIONS = Counter(
     "Post-onboarding continuation outcomes.",
     ("intent_kind", "outcome"),
 )
+CUSTOMER_ONBOARDING_EVENTS = Counter(
+    "customer_onboarding_events_total",
+    "Low-cardinality onboarding stage and capability outcomes.",
+    ("event", "outcome"),
+)
 CATALOG_CATEGORY_VIEWS = Counter(
     "catalog_category_views_total", "Catalog category view outcomes.", ("outcome",)
 )
@@ -34,6 +39,9 @@ class PrometheusCustomerJourneyObserver:
 
     def onboarding_continuation(self, intent_kind: str, outcome: str) -> None:
         CUSTOMER_ONBOARDING_CONTINUATIONS.labels(intent_kind, outcome).inc()
+
+    def onboarding_event(self, event: str, outcome: str) -> None:
+        CUSTOMER_ONBOARDING_EVENTS.labels(event, outcome).inc()
 
     def category_view(self, outcome: str) -> None:
         CATALOG_CATEGORY_VIEWS.labels(outcome).inc()

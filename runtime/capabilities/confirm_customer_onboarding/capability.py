@@ -3,9 +3,9 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from commerce.models import (
-    ChannelName,
     CommerceSession,
     CustomerOnboardingState,
+    DeliveryInputMode,
     OnboardingStage,
 )
 from commerce.repositories import (
@@ -37,10 +37,8 @@ class ConfirmCustomerOnboardingCapability(Capability[CommerceSession]):
     def __init__(
         self,
         service: SavedDeliveryDetailsService,
-        require_whatsapp_location: bool = False,
     ) -> None:
         self._service = service
-        self._require_whatsapp_location = require_whatsapp_location
 
     @property
     def metadata(self) -> CapabilityMetadata:
@@ -57,17 +55,16 @@ class ConfirmCustomerOnboardingCapability(Capability[CommerceSession]):
             NoArguments.model_validate(input.data)
         except ValidationError:
             return self._invalid(input.session)
-        if state.stage is not OnboardingStage.REVIEWING_DETAILS or not all(
+        if state.stage is not OnboardingStage.REVIEWING_PROFILE or not all(
             (
                 state.pending_customer_name,
                 state.pending_phone_number,
-                state.pending_delivery_address,
+                state.pending_address_details,
             )
         ):
             return self._invalid(input.session)
         if (
-            self._require_whatsapp_location
-            and input.context.channel is ChannelName.WHATSAPP
+            state.delivery_input_mode is DeliveryInputMode.WHATSAPP_LOCATION
             and state.pending_delivery_location is None
         ):
             return CapabilityOutput(
@@ -88,15 +85,30 @@ class ConfirmCustomerOnboardingCapability(Capability[CommerceSession]):
             )
         customer_name = state.pending_customer_name
         phone_number = state.pending_phone_number
-        delivery_address = state.pending_delivery_address
+        address_details = state.pending_address_details
         assert customer_name is not None
         assert phone_number is not None
-        assert delivery_address is not None
+        assert address_details is not None
+        area = (
+            state.pending_delivery_location.formatted_area
+            if state.pending_delivery_location is not None
+            else None
+        )
+        delivery_address = ", ".join(
+            value for value in (area, address_details) if value
+        )
+        delivery_location = (
+            state.pending_delivery_location.model_copy(
+                update={"address_details": address_details}
+            )
+            if state.pending_delivery_location is not None
+            else None
+        )
         try:
             if (
                 state.replacement_address_id is not None
                 and state.replacement_address_version is not None
-                and state.pending_delivery_location is not None
+                and delivery_location is not None
             ):
                 await self._service.update_address(
                     input.context.tenant_id,
@@ -105,7 +117,7 @@ class ConfirmCustomerOnboardingCapability(Capability[CommerceSession]):
                     state.replacement_address_version,
                     None,
                     delivery_address,
-                    state.pending_delivery_location,
+                    delivery_location,
                 )
             else:
                 await self._service.complete_onboarding(
@@ -117,7 +129,7 @@ class ConfirmCustomerOnboardingCapability(Capability[CommerceSession]):
                     delivery_address,
                     datetime.now(timezone.utc),
                     input.context.request_id,
-                    state.pending_delivery_location,
+                    delivery_location,
                 )
         except StaleSavedDeliveryAddressError:
             return CapabilityOutput(
@@ -182,10 +194,6 @@ class ConfirmCustomerOnboardingCapability(Capability[CommerceSession]):
                         id="customer-profile-saved",
                         text="Your delivery details have been saved for future orders.",
                     ),
-                ),
-                follow_up=FollowUpRequest(
-                    id="continue-shopping-after-onboarding",
-                    question="What would you like to order?",
                 ),
             ),
         )

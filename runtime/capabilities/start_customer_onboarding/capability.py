@@ -4,6 +4,7 @@ from commerce.models import (
     ChannelName,
     CommerceSession,
     CustomerOnboardingState,
+    DeliveryInputMode,
     OnboardingStage,
 )
 from commerce.repositories import SavedDeliveryPersistenceError
@@ -15,7 +16,11 @@ from runtime.capabilities import (
     CapabilityName,
     CapabilityOutput,
 )
-from runtime.capabilities.onboarding_support import missing_outcome, review_outcome
+from runtime.capabilities.onboarding_support import (
+    next_required_outcome,
+    review_outcome,
+    with_resolved_stage,
+)
 from runtime.contracts import (
     ApprovedResponseFragment,
     ExecutionStatus,
@@ -44,6 +49,21 @@ class StartCustomerOnboardingCapability(Capability[CommerceSession]):
         self, input: CapabilityInput[CommerceSession]
     ) -> CapabilityOutput[CommerceSession]:
         context = input.context
+        current = input.session.customer_onboarding
+        if current.stage in {
+            OnboardingStage.COLLECTING_IDENTITY,
+            OnboardingStage.COLLECTING_LOCATION,
+            OnboardingStage.COLLECTING_ADDRESS_DETAILS,
+            OnboardingStage.REVIEWING_PROFILE,
+        }:
+            return CapabilityOutput(
+                session=input.session,
+                outcome=(
+                    review_outcome(current)
+                    if current.stage is OnboardingStage.REVIEWING_PROFILE
+                    else next_required_outcome(current)
+                ),
+            )
         if context.channel_customer_id is None:
             return CapabilityOutput(
                 session=input.session.model_copy(
@@ -117,44 +137,25 @@ class StartCustomerOnboardingCapability(Capability[CommerceSession]):
                     ),
                 ),
             )
-        state = CustomerOnboardingState(
-            stage=OnboardingStage.COLLECTING_DETAILS,
-            pending_customer_name=name,
-            pending_phone_number=phone,
-            pending_delivery_address=address,
-        )
         requires_location = (
             self._require_whatsapp_location and context.channel is ChannelName.WHATSAPP
         )
-        if requires_location:
-            state = state.model_copy(update={"pending_delivery_address": None})
-            return CapabilityOutput(
-                session=input.session.model_copy(update={"customer_onboarding": state}),
-                outcome=GeneratedExecutionOutcome(
-                    status=ExecutionStatus.MISSING_INPUT,
-                    fragments=(
-                        ApprovedResponseFragment(
-                            id="delivery-location-requested",
-                            text="To save reusable delivery details, share your name and phone number plus the WhatsApp location attachment for the delivery destination.",
-                        ),
-                    ),
-                    follow_up=FollowUpRequest(
-                        id="share-onboarding-details-and-location",
-                        question="Please share any missing name or phone number and send the delivery destination using WhatsApp Location.",
-                    ),
-                ),
-            )
-        outcome = (
-            review_outcome(
-                state.model_copy(update={"stage": OnboardingStage.REVIEWING_DETAILS})
-            )
-            if all((name, phone, address))
-            else missing_outcome(state, first_offer=True)
+        state = CustomerOnboardingState(
+            delivery_input_mode=(
+                DeliveryInputMode.WHATSAPP_LOCATION
+                if requires_location
+                else DeliveryInputMode.TEXT_ADDRESS
+            ),
+            pending_customer_name=name,
+            pending_phone_number=phone,
+            pending_address_details=None if requires_location else address,
         )
-        if all((name, phone, address)):
-            state = state.model_copy(
-                update={"stage": OnboardingStage.REVIEWING_DETAILS}
-            )
+        state = with_resolved_stage(state)
+        outcome = (
+            review_outcome(state)
+            if state.stage is OnboardingStage.REVIEWING_PROFILE
+            else next_required_outcome(state, first_offer=True)
+        )
         return CapabilityOutput(
             session=input.session.model_copy(update={"customer_onboarding": state}),
             outcome=outcome,

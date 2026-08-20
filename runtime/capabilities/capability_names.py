@@ -47,3 +47,5 @@ class CapabilityName(str, Enum):
     REQUEST_DELIVERY_LOCATION = "request_delivery_location"
     SUBMIT_DELIVERY_LOCATION = "submit_delivery_location"
     COLLECT_DELIVERY_ADDRESS_DETAILS = "collect_delivery_address_details"
+    USE_TEXT_ADDRESS_FOR_ONBOARDING = "use_text_address_for_onboarding"
+    CHOOSE_CUSTOMER_LOCATION_USE = "choose_customer_location_use"

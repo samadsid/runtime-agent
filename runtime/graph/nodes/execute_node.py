@@ -47,18 +47,23 @@ class ExecuteNode:
         if context is None:
             context = ExecutionContext(conversation_id=state.conversation_id)
         command = state.planner_response.command
+        stable_incomplete = (
+            context.channel_customer_id is not None
+            and not state.customer_profile_projection.onboarding_completed
+        )
         if (
             context.inbound_message is not None
             and context.inbound_message.message_kind is MessageKind.LOCATION
         ):
             command = ExecuteCapabilityCommand(
-                capability=CapabilityName.SUBMIT_DELIVERY_LOCATION.value,
+                capability=(
+                    CapabilityName.START_CUSTOMER_ONBOARDING.value
+                    if stable_incomplete
+                    and session.customer_onboarding.stage is OnboardingStage.NOT_STARTED
+                    else CapabilityName.SUBMIT_DELIVERY_LOCATION.value
+                ),
                 arguments={},
             )
-        stable_incomplete = (
-            context.channel_customer_id is not None
-            and not state.customer_profile_projection.onboarding_completed
-        )
         onboarding_names = {
             CapabilityName.START_CUSTOMER_ONBOARDING.value,
             CapabilityName.COLLECT_CUSTOMER_ONBOARDING_DETAILS.value,
@@ -67,6 +72,7 @@ class ExecuteNode:
             CapabilityName.REQUEST_DELIVERY_LOCATION.value,
             CapabilityName.SUBMIT_DELIVERY_LOCATION.value,
             CapabilityName.COLLECT_DELIVERY_ADDRESS_DETAILS.value,
+            CapabilityName.USE_TEXT_ADDRESS_FOR_ONBOARDING.value,
         }
         if (
             state.customer_profile_projection.onboarding_completed
@@ -92,15 +98,7 @@ class ExecuteNode:
                 session, defer_command(command, context.request_id)
             )
             command = ExecuteCapabilityCommand(
-                capability=(
-                    CapabilityName.COLLECT_CUSTOMER_ONBOARDING_DETAILS.value
-                    if session.customer_onboarding.stage
-                    in {
-                        OnboardingStage.COLLECTING_DETAILS,
-                        OnboardingStage.REVIEWING_DETAILS,
-                    }
-                    else CapabilityName.START_CUSTOMER_ONBOARDING.value
-                ),
+                capability=CapabilityName.START_CUSTOMER_ONBOARDING.value,
                 arguments={},
             )
             self._observer.journey_entry("first_time", "onboarding")
@@ -132,6 +130,25 @@ class ExecuteNode:
             }
 
         result_session = result.session
+        if (
+            isinstance(command, ExecuteCapabilityCommand)
+            and command.capability in onboarding_names
+        ):
+            outcome_label = result.outcome.status.value
+            if isinstance(result.outcome, GeneratedExecutionOutcome):
+                if result.outcome.fragments:
+                    outcome_label = result.outcome.fragments[0].id
+                if result.outcome.follow_up and "Name, Phone, and Complete address" in (
+                    result.outcome.follow_up.question
+                ):
+                    self._observer.onboarding_event(
+                        "legacy_follow_up", "unexpected"
+                    )
+            self._observer.onboarding_event(command.capability, outcome_label)
+            previous_stage = session.customer_onboarding.stage
+            current_stage = result_session.customer_onboarding.stage
+            if current_stage is not previous_stage:
+                self._observer.onboarding_event("stage_entered", current_stage.value)
         if (
             isinstance(command, ExecuteCapabilityCommand)
             and command.capability == CapabilityName.CONFIRM_CUSTOMER_ONBOARDING.value

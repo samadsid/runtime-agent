@@ -208,6 +208,10 @@ class StartOnlinePaymentCapability(Capability[CommerceSession]):
             update={
                 "cart_items": (),
                 "checkout": CheckoutState(),
+                "selected_product": None,
+                "recent_product_results": (),
+                "catalog_browse": None,
+                "pending_cart_addition": None,
                 "pending_cart_clear": None,
                 "pending_saved_profile_use": None,
             }

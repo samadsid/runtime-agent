@@ -196,6 +196,8 @@ def test_cart_capability_guidance_keeps_ordinal_namespaces_separate() -> None:
     assert "Quantity zero" in commerce_prompt
     assert "Never interpret a cart ordinal" in commerce_prompt
     assert "separate namespaces" in rules_prompt
+    assert "`5` is a quantity, never a product ordinal" in commerce_prompt
+    assert "After an order is completed" in rules_prompt
 
 
 @pytest.mark.asyncio

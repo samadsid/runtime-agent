@@ -59,39 +59,53 @@ Capability arguments:
 - `cancel_order` uses the same target fields for a first request with
   `confirmed=false`. Use `confirmed=true` with no target only after explicit
   confirmation while a pending order cancellation exists.
-- `start_customer_onboarding`, `confirm_customer_onboarding`, and
-  `skip_customer_onboarding` require no arguments.
+- `start_customer_onboarding`, `confirm_customer_onboarding`,
+  `skip_customer_onboarding`, and `use_text_address_for_onboarding` require no
+  arguments.
 - `start_customer_shopping` requires no arguments.
 - `request_delivery_location` requires no arguments.
 - `submit_delivery_location` requires no arguments. Coordinates, message IDs, zones,
   tenants, customers, and addresses are never planner arguments.
 - `collect_delivery_address_details` requires only an `address_details` string copied
   from the latest customer message.
-- `collect_customer_onboarding_details` accepts optional `customer_name`,
-  `phone_number`, and `delivery_address` strings. Pass only values confidently
+- `choose_customer_location_use` requires `save_address=true` to add the pending
+  location as a new non-default address or `save_address=false` to use it only for
+  the active or next checkout.
+- `collect_customer_onboarding_details` accepts optional `customer_name` and
+  `phone_number` strings, with at least one supplied. Pass only values confidently
   present in the latest customer message.
 
 Mandatory capability-routing rules:
 
 - When `Customer shared location` is true, execute `submit_delivery_location` with no
   arguments. Never copy, infer, repair, round, or ask the LLM to provide coordinates.
-- When a checked delivery location is pending and the customer supplies flat/house,
-  floor, entrance, or landmark text, execute `collect_delivery_address_details`.
-- When a delivery location is required but no location attachment is present, execute
-  `request_delivery_location`. An explicit inability to share a location uses the
-  text-address fallback; a locality or PIN code alone never proves serviceability.
+- At `COLLECTING_LOCATION`, execute `submit_delivery_location` only for the trusted
+  location attachment. Unrelated text executes `request_delivery_location`; it can
+  never become address details. An explicit statement that location sharing is
+  unavailable executes `use_text_address_for_onboarding`.
+- At `COLLECTING_ADDRESS_DETAILS`, customer-supplied flat/house, floor, entrance,
+  landmark, or complete text-fallback address executes
+  `collect_delivery_address_details`.
 - Sharing a location is neither save consent nor order confirmation.
+- For a completed customer, a new location attachment never restarts onboarding and
+  never overwrites an address. After serviceability succeeds, route the explicit
+  save-versus-temporary reply to `choose_customer_location_use`. Only then may
+  building details route to `collect_delivery_address_details`.
+- Checkout uses the current default saved address automatically unless the customer
+  explicitly lists/selects another saved address or completes the pending alternative
+  location flow. Saving an alternative does not make it the default.
 
 - If onboarding is incomplete and not skipped, route a greeting or first-contact
-  message to `start_customer_onboarding`.
-- While onboarding is collecting, route supplied profile values to
-  `collect_customer_onboarding_details`, including every confidently extracted
-  value in the latest message. Values may be labelled or unlabelled and may
-  appear in any order. Omit ambiguous name/address boundaries; never guess.
-- While onboarding is reviewing, route explicit confirmation to
+  message to `start_customer_onboarding`. The first request asks only for name and
+  phone, never location or address.
+- At `COLLECTING_IDENTITY`, route supplied name and/or phone values to
+  `collect_customer_onboarding_details`. Include both when confidently present,
+  preserve already collected values, and never route this text as an address.
+- At `REVIEWING_PROFILE`, route explicit confirmation to
   `confirm_customer_onboarding` with no arguments. Route corrections to
-  `collect_customer_onboarding_details` with only corrected values. For a
-  rejection without corrections, execute collection with no arguments.
+  the matching identity, location, or address-detail capability. For a rejection
+  without corrections, execute `collect_customer_onboarding_details` with no
+  arguments so the customer can choose a field.
 - Route an explicit decline or skip to `skip_customer_onboarding`. For a stable
   customer whose onboarding is incomplete, a clear supported commerce request is
   preserved as bounded deferred state and onboarding runs before customer-specific
@@ -171,6 +185,11 @@ Mandatory capability-routing rules:
   includes both a product description and a positive quantity, execute
   `add_product_to_cart`. Preserve the customer's product words in
   `product_query`; pass the numeric quantity and an explicit unit, if present.
+- This rule starts a fresh cart journey after a completed order too. For example,
+  `5 kg chicken wings krdo` means `product_query="chicken wings"`, `quantity=5`,
+  and `stated_unit="kg"`; `5` is a quantity, never a product ordinal.
+- A number adjacent to a quantity unit such as kg, g, piece, or pieces is not an
+  ordinal even when stale product or catalog options appeared earlier.
 - Do not search or select first merely because no product is selected. Do not
   use direct add for browsing, price, or availability questions, or when either
   the product description or quantity is missing.

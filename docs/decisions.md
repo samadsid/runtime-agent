@@ -1,5 +1,42 @@
 # Architecture Decisions
 
+## ADR-038
+
+Treat post-onboarding location attachments as consent-gated checkout alternatives.
+
+Status
+
+Accepted
+
+Reason
+
+A location attachment proves only that coordinates were shared. It cannot reopen
+onboarding, overwrite a saved address, or change the default. Serviceable pins are
+held in a separate checkpointed proposal until the customer chooses temporary use or
+addition as a non-default address and supplies building details. Checkout uses the
+default address automatically unless this explicit alternative or an existing saved
+address selection is active.
+
+---
+
+## ADR-037
+
+Use one deterministic, checkpointed aggregate for sequential customer onboarding.
+
+Status
+
+Accepted
+
+Reason
+
+Identity, trusted delivery location, building details, review, and durable consent
+must advance through one stage resolver so partial turns cannot select competing
+legacy prompts. Channel input mode is explicit, serviceability remains owned by the
+delivery service, and capabilities return one approved next request while the frozen
+Planner → Execute → Response graph remains unchanged.
+
+---
+
 ## ADR-036
 
 Use tenant-owned PostGIS zones as the delivery-serviceability authority.

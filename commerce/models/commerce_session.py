@@ -12,6 +12,7 @@ from .direct_cart import PendingCartAddition
 from .product import Product
 from .saved_delivery import (
     CustomerOnboardingState,
+    PendingCustomerLocation,
     PendingSavedDetailsSave,
     PendingSavedProfileUse,
     SavedAddressOption,
@@ -36,4 +37,5 @@ class CommerceSession(BaseModel):
     customer_onboarding: CustomerOnboardingState = Field(
         default_factory=CustomerOnboardingState
     )
+    pending_customer_location: PendingCustomerLocation | None = None
     deferred_customer_intent: DeferredCustomerIntent | None = None

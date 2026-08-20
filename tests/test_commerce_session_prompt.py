@@ -61,6 +61,8 @@ def test_commerce_session_renderer_preserves_result_ordinals() -> None:
             "Pending saved profile use:\n"
             "None.\n"
             "Pending saved details confirmation:\n"
+            "None.\n"
+            "Pending post-onboarding location:\n"
             "None."
         )
 

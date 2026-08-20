@@ -75,6 +75,9 @@ from runtime.capabilities.add_to_cart import AddToCartCapability
 from runtime.capabilities.browse_catalog import BrowseCatalogCapability
 from runtime.capabilities.cancel_order import CancelOrderCapability
 from runtime.capabilities.checkout import CheckoutCapability
+from runtime.capabilities.choose_customer_location_use import (
+    ChooseCustomerLocationUseCapability,
+)
 from runtime.capabilities.clear_cart import ClearCartCapability
 from runtime.capabilities.collect_customer_onboarding_details import (
     CollectCustomerOnboardingDetailsCapability,
@@ -137,6 +140,9 @@ from runtime.capabilities.update_delivery_details import (
     UpdateDeliveryDetailsCapability,
 )
 from runtime.capabilities.update_saved_address import UpdateSavedAddressCapability
+from runtime.capabilities.use_text_address_for_onboarding import (
+    UseTextAddressForOnboardingCapability,
+)
 from runtime.capabilities.view_cart import ViewCartCapability
 from runtime.capabilities.view_payment_status import ViewPaymentStatusCapability
 from runtime.capabilities.view_saved_delivery_profile import (
@@ -550,7 +556,6 @@ class ApplicationContainer:
         self.confirm_customer_onboarding_capability = (
             ConfirmCustomerOnboardingCapability(
                 self.saved_delivery_details_service,
-                self.settings.DELIVERY_LOCATION_REQUIRED_FOR_WHATSAPP,
             )
         )
         self.skip_customer_onboarding_capability = SkipCustomerOnboardingCapability()
@@ -564,7 +569,16 @@ class ApplicationContainer:
             self.saved_delivery_details_service,
         )
         self.collect_delivery_address_details_capability = (
-            CollectDeliveryAddressDetailsCapability(self.payment_method_policy)
+            CollectDeliveryAddressDetailsCapability(
+                self.payment_method_policy,
+                self.saved_delivery_details_service,
+            )
+        )
+        self.use_text_address_for_onboarding_capability = (
+            UseTextAddressForOnboardingCapability()
+        )
+        self.choose_customer_location_use_capability = (
+            ChooseCustomerLocationUseCapability()
         )
 
         self.search_product_capability = SearchProductCapability(
@@ -702,6 +716,8 @@ class ApplicationContainer:
                 self.request_delivery_location_capability,
                 self.submit_delivery_location_capability,
                 self.collect_delivery_address_details_capability,
+                self.use_text_address_for_onboarding_capability,
+                self.choose_customer_location_use_capability,
                 self.search_product_capability,
                 self.select_product_capability,
                 self.browse_catalog_capability,

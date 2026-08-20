@@ -84,7 +84,7 @@ class RecordingJourneyHandler:
                 session=session.model_copy(
                     update={
                         "customer_onboarding": CustomerOnboardingState(
-                            stage=OnboardingStage.COLLECTING_DETAILS
+                            stage=OnboardingStage.COLLECTING_IDENTITY
                         )
                     }
                 ),
@@ -145,10 +145,10 @@ async def test_confirmation_continues_direct_add_with_original_request_id() -> N
     )
     session = CommerceSession(
         customer_onboarding=CustomerOnboardingState(
-            stage=OnboardingStage.REVIEWING_DETAILS,
+            stage=OnboardingStage.REVIEWING_PROFILE,
             pending_customer_name="Samad",
             pending_phone_number="9999999999",
-            pending_delivery_address="Delhi",
+            pending_address_details="Delhi",
         ),
         deferred_customer_intent=deferred,
     )
@@ -173,6 +173,42 @@ async def test_confirmation_continues_direct_add_with_original_request_id() -> N
     continuation_context = handler.calls[1][2]
     assert continuation_context.request_id == "whatsapp:wamid.original"
     assert update["session"].deferred_customer_intent is None
+    assert [fragment.id for fragment in update["execution_outcome"].fragments] == [
+        "customer-profile-saved",
+        "cart-added",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_confirmation_without_deferred_intent_continues_to_categories() -> None:
+    handler = RecordingJourneyHandler()
+    customer_context = context("whatsapp:wamid.confirm")
+    session = CommerceSession(
+        customer_onboarding=CustomerOnboardingState(
+            stage=OnboardingStage.REVIEWING_PROFILE,
+            pending_customer_name="Samad",
+            pending_phone_number="9999999999",
+            pending_address_details="Delhi",
+        )
+    )
+    state = CommerceGraphState(
+        conversation_id=customer_context.conversation_id,
+        customer_context=customer_context,
+        customer_profile_projection=CustomerProfileProjection(),
+        session=session,
+        planner_response=PlannerResponse(
+            command=ExecuteCapabilityCommand(
+                capability="confirm_customer_onboarding", arguments={}
+            )
+        ),
+    )
+
+    update = await ExecuteNode(handler).__call__(state)  # type: ignore[arg-type]
+
+    assert [call[0].capability for call in handler.calls] == [
+        "confirm_customer_onboarding",
+        "start_customer_shopping",
+    ]
     assert [fragment.id for fragment in update["execution_outcome"].fragments] == [
         "customer-profile-saved",
         "cart-added",

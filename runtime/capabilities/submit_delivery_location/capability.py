@@ -6,6 +6,7 @@ from commerce.models import (
     CommerceSession,
     DeliveryLocationSnapshot,
     OnboardingStage,
+    PendingCustomerLocation,
     PendingDeliveryLocation,
     ServiceabilityKind,
 )
@@ -20,6 +21,11 @@ from runtime.capabilities import (
     CapabilityMetadata,
     CapabilityName,
     CapabilityOutput,
+)
+from runtime.capabilities.onboarding_support import (
+    next_required_outcome,
+    review_outcome,
+    with_resolved_stage,
 )
 from runtime.contracts import (
     ApprovedResponseFragment,
@@ -58,6 +64,14 @@ class SubmitDeliveryLocationCapability(Capability[CommerceSession]):
             SubmitDeliveryLocationArguments.model_validate(input.data)
         except ValidationError:
             return self._invalid(input.session)
+        if (
+            input.session.customer_onboarding.stage
+            is OnboardingStage.COLLECTING_IDENTITY
+        ):
+            return CapabilityOutput(
+                session=input.session,
+                outcome=next_required_outcome(input.session.customer_onboarding),
+            )
         trusted = input.context.inbound_message
         if (
             trusted is None
@@ -120,19 +134,50 @@ class SubmitDeliveryLocationCapability(Capability[CommerceSession]):
         )
         session = input.session
         onboarding = session.customer_onboarding
+        onboarding_outcome = None
         if onboarding.stage in {
-            OnboardingStage.COLLECTING_DETAILS,
-            OnboardingStage.REVIEWING_DETAILS,
-            OnboardingStage.NOT_STARTED,
+            OnboardingStage.COLLECTING_LOCATION,
+            OnboardingStage.COLLECTING_ADDRESS_DETAILS,
+            OnboardingStage.REVIEWING_PROFILE,
         }:
-            onboarding = onboarding.model_copy(
+            onboarding = with_resolved_stage(onboarding.model_copy(
                 update={
-                    "stage": OnboardingStage.COLLECTING_DETAILS,
                     "pending_delivery_location": pending,
-                    "pending_delivery_address": None,
+                    "pending_address_details": None,
+                }
+            ))
+            session = session.model_copy(update={"customer_onboarding": onboarding})
+            if onboarding.stage is OnboardingStage.REVIEWING_PROFILE:
+                onboarding_outcome = review_outcome(onboarding)
+        elif (
+            onboarding.stage is OnboardingStage.COMPLETED
+            or input.context.profile.onboarding_completed
+        ):
+            session = session.model_copy(
+                update={
+                    "pending_customer_location": PendingCustomerLocation(
+                        delivery_location=pending
+                    )
                 }
             )
-            session = session.model_copy(update={"customer_onboarding": onboarding})
+            onboarding_outcome = GeneratedExecutionOutcome(
+                status=ExecutionStatus.MISSING_INPUT,
+                fragments=(
+                    ApprovedResponseFragment(
+                        id="customer-location-serviceable",
+                        text=(
+                            f"Delivery is available in {area}."
+                            if area
+                            else "Delivery is available at this location."
+                        ),
+                    ),
+                ),
+                follow_up=FollowUpRequest(
+                    id="choose-customer-location-use",
+                    question="Should this location be saved as a new address or used only for the current order?",
+                ),
+                protected_values=(area,) if area else (),
+            )
         elif session.checkout.stage in {
             CheckoutStage.COLLECTING_DETAILS,
             CheckoutStage.READY_TO_CONFIRM,
@@ -149,33 +194,9 @@ class SubmitDeliveryLocationCapability(Capability[CommerceSession]):
                 }
             )
             session = session.model_copy(update={"checkout": checkout})
-        elif (
-            self._saved_details_service is not None
-            and input.context.channel_customer_id is not None
-        ):
-            profile, addresses = await self._saved_details_service.list_addresses(
-                input.context.tenant_id,
-                input.context.channel,
-                input.context.channel_customer_id,
-            )
-            address = next((item for item in addresses if item.is_default), None)
-            address = address or (addresses[0] if addresses else None)
-            if profile is not None and address is not None:
-                onboarding = onboarding.model_copy(
-                    update={
-                        "stage": OnboardingStage.COLLECTING_DETAILS,
-                        "pending_customer_name": profile.customer_name,
-                        "pending_phone_number": profile.phone_number,
-                        "pending_delivery_address": None,
-                        "pending_delivery_location": pending,
-                        "replacement_address_id": address.id,
-                        "replacement_address_version": address.version,
-                    }
-                )
-                session = session.model_copy(update={"customer_onboarding": onboarding})
         return CapabilityOutput(
             session=session,
-            outcome=GeneratedExecutionOutcome(
+            outcome=onboarding_outcome or GeneratedExecutionOutcome(
                 status=ExecutionStatus.SUCCESS,
                 fragments=(
                     ApprovedResponseFragment(
