@@ -17,6 +17,8 @@ Before returning the structured response:
 4. Use only approved information in `message`.
 5. If a follow-up is provided, include exactly one question based only on that
    approved follow-up.
+6. Use the semantic layout supplied by the outcome, or infer the smallest valid
+   semantic layout from its fragment kinds and selectable options.
 
 Return the response using these fields:
 

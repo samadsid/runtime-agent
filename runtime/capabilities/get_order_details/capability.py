@@ -13,14 +13,18 @@ from runtime.capabilities import (
 )
 from runtime.capabilities.order_support import (
     format_amount,
+    customer_order_status,
     resolve_order_target,
     target_error_outcome,
 )
+from runtime.capabilities.checkout_support import mask_phone, payment_method_label
 from runtime.contracts import (
     ApprovedResponseFragment,
     ExecutionStatus,
     GeneratedExecutionOutcome,
     ResponseFragmentKind,
+    ResponseIcon,
+    ResponseLayout,
 )
 
 
@@ -57,10 +61,10 @@ class GetOrderDetailsCapability(Capability[CommerceSession]):
                 id=f"order-item-{index}",
                 kind=ResponseFragmentKind.ITEM,
                 text=(
-                    f"{index}. {item.product_name} | "
-                    f"Quantity {format_amount(item.quantity)} {item.unit} | "
-                    f"Unit price {format_amount(item.unit_price)} | "
-                    f"Amount {format_amount(item.unit_price * item.quantity)}"
+                    f"{index}. {item.product_name}\n"
+                    f"   {format_amount(item.quantity)} {item.unit} × "
+                    f"{format_amount(item.unit_price)} = "
+                    f"{format_amount(item.unit_price * item.quantity)}"
                 ),
             )
             for index, item in enumerate(order.items, start=1)
@@ -72,46 +76,68 @@ class GetOrderDetailsCapability(Capability[CommerceSession]):
         timeline = tuple(
             ApprovedResponseFragment(
                 id=f"order-status-{index}",
-                text=f"{history.to_status.value} at {history.created_at.isoformat()}",
+                text=f"{customer_order_status(history.to_status)} at {history.created_at.isoformat()}",
+                kind=ResponseFragmentKind.BULLET,
             )
             for index, history in enumerate(order.status_history, start=1)
         )
         fragments = (
             ApprovedResponseFragment(
                 id="order-details",
-                text=f"Order {order.public_order_number} | Status {order.status.value}",
+                text=f"Order {order.public_order_number}",
+                kind=ResponseFragmentKind.SECTION,
+            ),
+            ApprovedResponseFragment(
+                id="order-current-status",
+                text=f"Status: {customer_order_status(order.status)}",
+                kind=ResponseFragmentKind.FIELD,
             ),
             *item_fragments,
             ApprovedResponseFragment(
-                id="order-total", text=f"Total {format_amount(total)}"
+                id="order-total", text=f"Total: {format_amount(total)}",
+                kind=ResponseFragmentKind.TOTAL,
             ),
             ApprovedResponseFragment(
                 id="order-payment",
-                text=f"Payment method {order.payment_method.value}",
+                text=f"Payment: {payment_method_label(order.payment_method)}",
+                kind=ResponseFragmentKind.FIELD,
+            ),
+            ApprovedResponseFragment(
+                id="order-delivery-heading",
+                text="Delivery",
+                kind=ResponseFragmentKind.SECTION,
             ),
             ApprovedResponseFragment(
                 id="order-delivery",
                 text=(
-                    f"Delivery to {order.customer_name} | "
-                    f"Phone {order.phone_number} | Address {order.delivery_address}"
+                    f"Name: {order.customer_name}\n"
+                    f"Phone: {mask_phone(order.phone_number)}\n"
+                    f"Address: {order.delivery_address}"
                 ),
+                kind=ResponseFragmentKind.FIELD,
             ),
             ApprovedResponseFragment(
                 id="order-created",
                 text=(
-                    f"Created {order.created_at.isoformat()} | "
-                    f"Confirmed {order.confirmed_at.isoformat() if order.confirmed_at is not None else 'not yet'}"
+                    f"Created: {order.created_at.isoformat()}\n"
+                    f"Confirmed: {order.confirmed_at.isoformat() if order.confirmed_at is not None else 'not yet'}"
                 ),
+                kind=ResponseFragmentKind.FIELD,
+            ),
+            ApprovedResponseFragment(
+                id="order-status-history-heading",
+                text="Status history",
+                kind=ResponseFragmentKind.SECTION,
             ),
             *timeline,
         )
         protected = [
             order.public_order_number,
-            order.status.value,
+            customer_order_status(order.status),
             format_amount(total),
-            order.payment_method.value,
+            payment_method_label(order.payment_method),
             order.customer_name,
-            order.phone_number,
+            mask_phone(order.phone_number),
             order.delivery_address,
             order.created_at.isoformat(),
         ]
@@ -128,7 +154,7 @@ class GetOrderDetailsCapability(Capability[CommerceSession]):
                 )
             )
         for history in order.status_history:
-            protected.extend((history.to_status.value, history.created_at.isoformat()))
+            protected.extend((customer_order_status(history.to_status), history.created_at.isoformat()))
 
         return CapabilityOutput(
             session=input.session,
@@ -136,5 +162,7 @@ class GetOrderDetailsCapability(Capability[CommerceSession]):
                 status=ExecutionStatus.SUCCESS,
                 fragments=fragments,
                 protected_values=tuple(protected),
+                layout=ResponseLayout.SUMMARY,
+                heading_emoji=ResponseIcon.ORDER,
             ),
         )

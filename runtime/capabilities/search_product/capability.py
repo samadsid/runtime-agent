@@ -14,6 +14,8 @@ from runtime.contracts import (
     FollowUpRequest,
     GeneratedExecutionOutcome,
     ResponseFragmentKind,
+    ResponseIcon,
+    ResponseLayout,
 )
 
 
@@ -94,6 +96,7 @@ class SearchProductCapability(Capability[CommerceSession]):
             ApprovedResponseFragment(
                 id="search-results-heading",
                 text="Available products:",
+                kind=ResponseFragmentKind.SECTION,
             )
         ]
         fragments.extend(
@@ -110,6 +113,12 @@ class SearchProductCapability(Capability[CommerceSession]):
             outcome=GeneratedExecutionOutcome(
                 status=ExecutionStatus.SUCCESS,
                 fragments=tuple(fragments),
+                follow_up=FollowUpRequest(
+                    id="select-search-product",
+                    question="Which product would you like?",
+                ),
+                layout=ResponseLayout.SELECTABLE_LIST,
+                heading_emoji=ResponseIcon.SEARCH,
                 protected_values=tuple(
                     value
                     for ordinal, product in enumerate(products, start=1)

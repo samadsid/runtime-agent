@@ -53,6 +53,19 @@ def test_reviewed_templates_preserve_order_reference(
     assert payload().order_reference in body
     assert payload().order_reference in variables.values()
     assert "paid" not in body.lower()
+    if notification_type is NotificationType.ORDER_CONFIRMED:
+        assert "CASH_ON_DELIVERY" not in body
+        assert "Cash on Delivery" in body or "कैश ऑन डिलीवरी" in body
+
+
+def test_template_values_cannot_inject_whatsapp_structure() -> None:
+    registry = NotificationTemplateRegistry(
+        version=1, default_locale="en-IN", content_sids={}
+    )
+    template, _ = registry.get(NotificationType.ORDER_CONFIRMED, "en-IN")
+
+    with pytest.raises(NotificationTemplateError, match="unsafe presentation"):
+        registry.render(template, payload(payment_method="*Injected*"))
 
 
 def test_unknown_locale_uses_configured_fallback() -> None:

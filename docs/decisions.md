@@ -1,5 +1,29 @@
 # Architecture Decisions
 
+## ADR-039
+
+Use one semantic, deterministic WhatsApp presentation boundary.
+
+Status
+
+Accepted
+
+Reason
+
+Capabilities remain authoritative for approved meaning and ordinals while a typed
+layout tells the existing response layer whether content is short, selectable,
+informational, summary, or error presentation. The response LLM localizes only
+surrounding language; grounding validation and one deterministic formatter enforce
+WhatsApp-safe headings, lists, fields, totals, spacing, and fallback rendering.
+Typed semantic heading emoji are applied deterministically once per response;
+selectable ordinals remain plain and stable, and catalog content never drives
+invented emoji mappings.
+Provider adapters transport the final text and reject invalid size or structure
+without truncating facts. Approved template definitions and parameter ordering are
+unchanged, and the frozen Planner → Execute → Response graph remains intact.
+
+---
+
 ## ADR-038
 
 Treat post-onboarding location attachments as consent-gated checkout alternatives.

@@ -5,12 +5,14 @@ import logging
 from runtime.contracts import (
     FixedExecutionOutcome,
     GeneratedExecutionOutcome,
-    ResponseFragmentKind,
+    ResponseLayout,
 )
 from runtime.llm import LLMProvider
+from runtime.observability import NullResponseObserver, ResponseObserver
 from runtime.prompts.response import ResponsePromptBuilder
 
-from .models import ResponseComposition, ResponseLayout
+from .formatter import WhatsAppFormattingError, WhatsAppResponseFormatter
+from .models import ResponseComposition
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +22,12 @@ class ResponseGenerator:
         self,
         prompt_builder: ResponsePromptBuilder,
         llm_provider: LLMProvider,
+        observer: ResponseObserver | None = None,
     ) -> None:
         self._prompt_builder = prompt_builder
         self._llm_provider = llm_provider
+        self._observer = observer or NullResponseObserver()
+        self._formatter = WhatsAppResponseFormatter()
 
     async def generate(
         self,
@@ -30,10 +35,24 @@ class ResponseGenerator:
         customer_message: str,
     ) -> str:
         if isinstance(outcome, FixedExecutionOutcome):
-            return outcome.message
+            decorated = self._formatter.apply_heading_emoji(
+                outcome.message, outcome.heading_emoji
+            )
+            message, changed = self._formatter.normalize(decorated)
+            self._formatter.validate_structure(message)
+            self._observer.normalization(changed)
+            self._observer.rendered(outcome.layout.value, "fixed")
+            return message
 
-        composition = await self._compose(outcome, customer_message)
-        return composition.message
+        safe_outcome = self._formatter.sanitize_outcome(outcome)
+        composition = await self._compose(safe_outcome, customer_message)
+        decorated = self._formatter.apply_heading_emoji(
+            composition.message, safe_outcome.heading_emoji
+        )
+        message, changed = self._formatter.normalize(decorated)
+        self._formatter.validate_structure(message, safe_outcome.protected_values)
+        self._observer.normalization(changed)
+        return message
 
     async def _compose(
         self,
@@ -46,19 +65,32 @@ class ResponseGenerator:
                 request=prompt,
                 response_model=ResponseComposition,
             )
-            self._validate_composition(outcome, composition)
+            layout = self._formatter.resolve_layout(outcome)
+            self._validate_composition(outcome, composition, layout)
+            self._observer.rendered(layout.value, "generated")
             return composition
-        except Exception:
+        except Exception as error:
+            category = (
+                str(error)
+                if isinstance(error, (ValueError, WhatsAppFormattingError))
+                else "provider_failure"
+            )
+            self._observer.validation_failure(category[:64])
             logger.exception(
                 "Response composition failed; using deterministic fallback."
             )
-            return self._fallback_composition(outcome)
+            fallback = self._fallback_composition(outcome)
+            self._observer.rendered(fallback.layout.value, "fallback")
+            return fallback
 
     @staticmethod
     def _validate_composition(
         outcome: GeneratedExecutionOutcome,
         composition: ResponseComposition,
+        layout: ResponseLayout,
     ) -> None:
+        if composition.layout is not layout:
+            raise ValueError("invalid_layout")
         approved_fragment_ids = tuple(fragment.id for fragment in outcome.fragments)
         if composition.fragment_ids != approved_fragment_ids:
             raise ValueError(
@@ -78,13 +110,31 @@ class ResponseGenerator:
         )
         if missing_values:
             raise ValueError("Response composition altered protected values.")
-        markup_only = composition.message
-        for value in sorted(outcome.protected_values, key=len, reverse=True):
-            markup_only = markup_only.replace(value, "")
-        if markup_only.count("*") % 2:
-            raise ValueError("Response composition contains unbalanced bold markup.")
-        if outcome.follow_up is not None and composition.message.count("?") > 1:
-            raise ValueError("Response composition contains more than one question.")
+        option_labels = (
+            tuple(option.label for option in outcome.follow_up.options)
+            if outcome.follow_up is not None
+            else ()
+        )
+        option_positions: list[int] = []
+        for label in option_labels:
+            if composition.message.count(label) != 1:
+                raise ValueError("invalid_options")
+            option_positions.append(composition.message.index(label))
+        if option_positions != sorted(option_positions):
+            raise ValueError("invalid_option_order")
+        WhatsAppResponseFormatter.validate_structure(
+            composition.message, outcome.protected_values
+        )
+        question_count = WhatsAppResponseFormatter.question_count(composition.message)
+        if outcome.follow_up is not None:
+            if question_count > 1:
+                raise ValueError("multiple_questions")
+            if option_positions and max(option_positions) > max(
+                composition.message.rfind(mark) for mark in ("?", "؟", "？")
+            ):
+                raise ValueError("question_not_last")
+        elif question_count:
+            raise ValueError("unapproved_question")
         if "\n\n\n" in composition.message:
             raise ValueError("Response composition contains unstable section spacing.")
 
@@ -92,53 +142,19 @@ class ResponseGenerator:
     def _fallback_composition(
         outcome: GeneratedExecutionOutcome,
     ) -> ResponseComposition:
-        layout = (
-            ResponseLayout.LIST
-            if any(
-                fragment.kind == ResponseFragmentKind.ITEM
-                for fragment in outcome.fragments
-            )
-            else ResponseLayout.PARAGRAPH
-        )
+        layout = WhatsAppResponseFormatter.resolve_layout(outcome)
         return ResponseComposition(
             layout=layout,
             fragment_ids=tuple(fragment.id for fragment in outcome.fragments),
             follow_up_id=(
                 outcome.follow_up.id if outcome.follow_up is not None else None
             ),
-            message=ResponseGenerator._render_approved_fallback(outcome, layout),
+            message=WhatsAppResponseFormatter.render_fallback(outcome, layout),
         )
 
     @staticmethod
     def _render_approved_fallback(
-        outcome: GeneratedExecutionOutcome,
-        layout: ResponseLayout,
+        outcome: GeneratedExecutionOutcome, layout: ResponseLayout
     ) -> str:
-        blocks: list[str] = []
-        current_lines: list[str] = []
-        for fragment in outcome.fragments:
-            if fragment.kind in {
-                ResponseFragmentKind.SECTION,
-                ResponseFragmentKind.TOTAL,
-            }:
-                if current_lines:
-                    blocks.append("\n".join(current_lines))
-                    current_lines = []
-                text = fragment.text
-                if fragment.kind in {
-                    ResponseFragmentKind.SECTION,
-                    ResponseFragmentKind.TOTAL,
-                }:
-                    text = f"*{text}*"
-                blocks.append(text)
-            else:
-                current_lines.append(fragment.text)
-        if current_lines:
-            blocks.append("\n".join(current_lines))
-
-        if outcome.follow_up is not None:
-            if outcome.follow_up.options:
-                blocks.append("\n".join(option.label for option in outcome.follow_up.options))
-            blocks.append(outcome.follow_up.question)
-
-        return "\n\n".join(block for block in blocks if block)
+        """Compatibility entry point for focused renderer tests."""
+        return WhatsAppResponseFormatter.render_fallback(outcome, layout)

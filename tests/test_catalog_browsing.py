@@ -27,6 +27,7 @@ from runtime.capabilities.resolve_catalog_browse import (
     ResolveCatalogBrowseCapability,
 )
 from runtime.contracts import ExecutionStatus, GeneratedExecutionOutcome
+from runtime.contracts import ResponseIcon
 
 TENANT = UUID("10000000-0000-0000-0000-000000000001")
 
@@ -164,7 +165,9 @@ async def test_browse_capability_stores_page_and_resolver_selects_reloaded_produ
     assert shown.session.catalog_browse is not None
     assert shown.session.catalog_browse.kind is CatalogBrowseKind.CATEGORIES
     assert isinstance(shown.outcome, GeneratedExecutionOutcome)
-    assert shown.outcome.fragments[0].id == "catalog-category-1"
+    assert shown.outcome.fragments[0].id == "catalog-categories-heading"
+    assert shown.outcome.fragments[1].id == "catalog-category-1"
+    assert shown.outcome.heading_emoji is ResponseIcon.CATALOG
 
     products_shown = await ResolveCatalogBrowseCapability(
         service, clock=lambda: now

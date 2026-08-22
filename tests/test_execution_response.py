@@ -15,6 +15,7 @@ from runtime.contracts import (
     FollowUpRequest,
     GeneratedExecutionOutcome,
     ResponseFragmentKind,
+    ResponseIcon,
 )
 from runtime.graph.adapters import LangChainMessageAdapter
 from runtime.graph.nodes import ExecuteNode, ResponseNode
@@ -88,7 +89,7 @@ async def test_generator_returns_grounded_llm_response() -> None:
             layout=ResponseLayout.LIST,
             fragment_ids=("explanation",),
             follow_up_id="question",
-            message=("Choose a valid item.\nWhich item would you like?\n1. First item"),
+            message=("Choose a valid item.\n1. First item\nWhich item would you like?"),
         )
     )
 
@@ -98,11 +99,44 @@ async def test_generator_returns_grounded_llm_response() -> None:
     )
 
     assert message == (
-        "Choose a valid item.\nWhich item would you like?\n1. First item"
+        "Choose a valid item.\n1. First item\nWhich item would you like?"
     )
     request, response_model = provider.requests[0]
     assert response_model is ResponseComposition
     assert request.temperature == 0.0
+
+
+@pytest.mark.asyncio
+async def test_generator_guarantees_approved_heading_emoji() -> None:
+    outcome = GeneratedExecutionOutcome(
+        status=ExecutionStatus.SUCCESS,
+        fragments=(
+            ApprovedResponseFragment(
+                id="catalog-heading",
+                text="Choose a category",
+                kind=ResponseFragmentKind.SECTION,
+            ),
+            ApprovedResponseFragment(
+                id="category-one",
+                text="1. Meat",
+                kind=ResponseFragmentKind.ITEM,
+            ),
+        ),
+        heading_emoji=ResponseIcon.CATALOG,
+        layout=ResponseLayout.SELECTABLE_LIST,
+        protected_values=("1", "Meat"),
+    )
+    provider = StubLLMProvider(
+        result=ResponseComposition(
+            layout=ResponseLayout.SELECTABLE_LIST,
+            fragment_ids=("catalog-heading", "category-one"),
+            message="*Choose a category*\n\n1. Meat",
+        )
+    )
+
+    message = await response_generator(provider).generate(outcome, "show categories")
+
+    assert message == "🛍️ *Choose a category*\n\n1. Meat"
 
 
 @pytest.mark.asyncio
@@ -139,7 +173,7 @@ async def test_generator_rejects_altered_protected_values_and_falls_back() -> No
     )
     provider = StubLLMProvider(
         result=ResponseComposition(
-            layout=ResponseLayout.PARAGRAPH,
+            layout=ResponseLayout.SHORT,
             fragment_ids=("cart-item-added",),
             message="2 kg Chicken added ho gaya.",
         )
@@ -165,7 +199,7 @@ async def test_bold_validation_ignores_asterisks_in_protected_phone_mask() -> No
     composed = f"*Delivery*\nPhone: {masked_phone}"
     provider = StubLLMProvider(
         result=ResponseComposition(
-            layout=ResponseLayout.PARAGRAPH,
+            layout=ResponseLayout.SHORT,
             fragment_ids=("delivery-review",),
             message=composed,
         )
@@ -194,7 +228,7 @@ async def test_composition_failure_does_not_log_protected_delivery_values(
     )
     provider = StubLLMProvider(
         result=ResponseComposition(
-            layout=ResponseLayout.PARAGRAPH,
+            layout=ResponseLayout.SHORT,
             fragment_ids=("delivery-review",),
             message="Delivery details are ready.",
         )
@@ -246,19 +280,19 @@ async def test_fixed_response_bypasses_llm() -> None:
     [
         (
             "मुझे पहला वाला चाहिए",
-            "सही आइटम चुनें। आप कौन-सा आइटम चाहते हैं? 1. First item",
+            "सही आइटम चुनें। 1. First item\nआप कौन-सा आइटम चाहते हैं?",
         ),
         (
             "pehla wala dedo",
-            "Valid item choose karo. Kaunsa chahiye? 1. First item",
+            "Valid item choose karo. 1. First item\nKaunsa chahiye?",
         ),
         (
             "¿Quiero el primero, cuál elijo?",
-            "Elige un artículo válido. ¿Cuál quieres? 1. First item",
+            "Elige un artículo válido. 1. First item\n¿Cuál quieres?",
         ),
         (
             "最初の商品が欲しいです",
-            "有効な商品を選んでください。どの商品にしますか？ 1. First item",
+            "有効な商品を選んでください。1. First item\nどの商品にしますか？",
         ),
     ],
 )
@@ -268,7 +302,7 @@ async def test_generator_uses_any_customer_language_from_llm(
 ) -> None:
     provider = StubLLMProvider(
         result=ResponseComposition(
-            layout=ResponseLayout.PARAGRAPH,
+            layout=ResponseLayout.SELECTABLE_LIST,
             fragment_ids=("explanation",),
             follow_up_id="question",
             message=llm_response,
@@ -459,7 +493,7 @@ async def test_response_node_emits_one_message_without_session_update() -> None:
             layout=ResponseLayout.PARAGRAPH,
             fragment_ids=("explanation",),
             follow_up_id="question",
-            message="Choose a valid item. Which item would you like? 1. First item",
+            message="Choose a valid item. 1. First item Which item would you like?",
         )
     )
     state = CommerceGraphState(

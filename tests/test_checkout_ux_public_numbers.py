@@ -57,8 +57,8 @@ async def test_cod_only_policy_auto_selects_and_builds_complete_review() -> None
     assert ready.stage is CheckoutStage.READY_TO_CONFIRM
     assert ready.payment_method is PaymentMethod.CASH_ON_DELIVERY
     assert "Cash on Delivery" in fallback
-    assert "Phone: ******7170" in fallback
-    assert "Total: ₹800" in fallback
+    assert "*Phone:* ******7170" in fallback
+    assert "*Total:* ₹800" in fallback
     assert fallback.endswith("Cash on Delivery?")
     assert outcome.follow_up is not None
     assert outcome.follow_up.id == "confirm-order-placement"

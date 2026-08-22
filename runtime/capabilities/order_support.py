@@ -129,3 +129,8 @@ def target_error_outcome(
 
 def format_amount(value: Decimal) -> str:
     return format(value, "f")
+
+
+def customer_order_status(value: object) -> str:
+    raw = getattr(value, "value", value)
+    return str(raw).replace("_", " ").title()

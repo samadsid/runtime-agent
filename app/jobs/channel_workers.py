@@ -9,6 +9,7 @@ from app.observability import (
     AMBIGUOUS_SENDS,
     INBOX_LATENCY,
     OUTBOUND,
+    OUTBOUND_PRESENTATION,
     RETRIES,
     WORKER_HEALTH,
 )
@@ -41,7 +42,11 @@ from runtime.contracts import (
     TrustedInboundMessageContext,
 )
 from runtime.domain.commerce_runtime import CommerceRuntime
-from runtime.responses import ResponseGenerator
+from runtime.responses import (
+    ResponseGenerator,
+    WhatsAppFormattingError,
+    WhatsAppResponseFormatter,
+)
 
 logger = logging.getLogger(__name__)
 CHANNEL = ChannelName.WHATSAPP.value
@@ -149,7 +154,8 @@ class ChannelInboundProcessor(PeriodicChannelWorker):
                         else "Sorry, I can currently help only with text messages and standard location attachments."
                     )
                     if self._response_generator is None:
-                        reply = approved
+                        reply, _ = WhatsAppResponseFormatter.normalize(approved)
+                        WhatsAppResponseFormatter.validate_structure(reply)
                     else:
                         language_signal = await self._repository.latest_text_body(
                             inbound.conversation_id, exclude_id=inbound.id
@@ -272,6 +278,7 @@ class ChannelOutboundDispatcher(PeriodicChannelWorker):
         notification_templates: NotificationTemplateRegistry | None = None,
         provider_templates: WhatsAppTemplateRegistry | None = None,
         provider_name: WhatsAppProviderName = WhatsAppProviderName.TWILIO,
+        max_text_chars: int | None = None,
     ) -> None:
         super().__init__(interval_seconds, "outbound")
         self._repository = repository
@@ -283,6 +290,7 @@ class ChannelOutboundDispatcher(PeriodicChannelWorker):
         self._notification_templates = notification_templates
         self._provider_templates = provider_templates
         self._provider_name = provider_name
+        self._max_text_chars = max_text_chars
 
     async def run_once(self) -> None:
         now = datetime.now(timezone.utc)
@@ -333,6 +341,7 @@ class ChannelOutboundDispatcher(PeriodicChannelWorker):
                     now=now,
                 )
             if outbound.content_mode == NotificationContentMode.TEMPLATE:
+                OUTBOUND_PRESENTATION.labels("template", "attempted").inc()
                 template_name = outbound.template_name or outbound.content_sid
                 if template_name is None or outbound.content_variables is None:
                     raise PermanentSendError("incomplete_content_template")
@@ -353,6 +362,32 @@ class ChannelOutboundDispatcher(PeriodicChannelWorker):
             else:
                 if outbound.body is None:
                     raise PermanentSendError("missing_text_body")
+                try:
+                    WhatsAppResponseFormatter.validate_structure(outbound.body)
+                except WhatsAppFormattingError:
+                    OUTBOUND_PRESENTATION.labels(
+                        "free_form", "structure_rejected"
+                    ).inc()
+                    await self._repository.fail_outbound(
+                        outbound.id,
+                        OutboundStatus.FAILED,
+                        "invalid_text_structure",
+                        now,
+                    )
+                    return
+                if (
+                    self._max_text_chars is not None
+                    and len(outbound.body) > self._max_text_chars
+                ):
+                    OUTBOUND_PRESENTATION.labels("free_form", "size_rejected").inc()
+                    await self._repository.fail_outbound(
+                        outbound.id,
+                        OutboundStatus.FAILED,
+                        "body_too_long",
+                        now,
+                    )
+                    return
+                OUTBOUND_PRESENTATION.labels("free_form", "attempted").inc()
                 await self._repository.mark_send_started(outbound.id, now)
                 result = await self._provider.send_text(
                     outbound.recipient_id,

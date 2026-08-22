@@ -428,3 +428,42 @@ async def test_dispatcher_marks_possible_acceptance_ambiguous_without_retry() ->
     assert repository.started == [outbound.id]
     assert repository.failed[0][1] == OutboundStatus.AMBIGUOUS
     assert repository.failed[0][2] == "possible_acceptance"
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_rejects_oversized_free_form_before_provider_send() -> None:
+    now = datetime.now(timezone.utc)
+
+    class Repository:
+        def __init__(self) -> None:
+            self.failed = []
+
+        async def conversation_last_inbound(self, conversation_id):
+            return now
+
+        async def fail_outbound(self, *args):
+            self.failed.append(args)
+
+    class Provider:
+        async def send_text(self, recipient_id, body, idempotency_key):
+            raise AssertionError("oversized text must not reach the provider")
+
+    repository = Repository()
+    outbound = OutboundMessage(
+        id=uuid4(), tenant_id=uuid4(), channel=ChannelName.WHATSAPP,
+        provider=WhatsAppProviderName.META_CLOUD, conversation_id=uuid4(),
+        source_inbound_id=uuid4(), recipient_id="+919876543210", sender_id="456",
+        body="123456", status=OutboundStatus.PENDING, attempt_count=0,
+        next_attempt_at=now, lease_expires_at=None, provider_message_id=None,
+        last_error_code=None, created_at=now, sent_at=None, updated_at=now,
+    )
+    dispatcher = ChannelOutboundDispatcher(
+        repository=repository, provider=Provider(), batch_size=20,
+        lease_seconds=120, max_attempts=5, interval_seconds=1, window_hours=24,
+        provider_name=WhatsAppProviderName.META_CLOUD, max_text_chars=5,
+    )
+
+    await dispatcher._dispatch(outbound)
+
+    assert repository.failed[0][1] == OutboundStatus.FAILED
+    assert repository.failed[0][2] == "body_too_long"

@@ -34,3 +34,20 @@ class NullCustomerJourneyObserver:
 
     def onboarding_event(self, event: str, outcome: str) -> None:
         pass
+
+
+class ResponseObserver(Protocol):
+    def rendered(self, layout: str, mode: str) -> None: ...
+    def normalization(self, applied: bool) -> None: ...
+    def validation_failure(self, category: str) -> None: ...
+
+
+class NullResponseObserver:
+    def rendered(self, layout: str, mode: str) -> None:
+        pass
+
+    def normalization(self, applied: bool) -> None:
+        pass
+
+    def validation_failure(self, category: str) -> None:
+        pass

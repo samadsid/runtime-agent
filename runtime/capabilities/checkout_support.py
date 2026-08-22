@@ -22,6 +22,8 @@ from runtime.contracts import (
     FollowUpRequest,
     GeneratedExecutionOutcome,
     ResponseFragmentKind,
+    ResponseIcon,
+    ResponseLayout,
 )
 
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -118,6 +120,8 @@ async def advance_to_payment(
             options=options,
         ),
         protected_values=tuple(option.label for option in options),
+        layout=ResponseLayout.SELECTABLE_LIST,
+        heading_emoji=ResponseIcon.PAYMENT,
     )
 
 
@@ -198,7 +202,7 @@ def confirmation_review_outcome(
     fragments.append(
         ApprovedResponseFragment(
             id="checkout-final-review",
-            text="🛒 Order Summary",
+            text="Order Summary",
             kind=ResponseFragmentKind.SECTION,
         )
     )
@@ -285,4 +289,6 @@ def confirmation_review_outcome(
             ),
         ),
         protected_values=tuple(protected_values),
+        layout=ResponseLayout.SUMMARY,
+        heading_emoji=ResponseIcon.REVIEW,
     )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from commerce.models import CommerceSession
 from commerce.services import OrderService
+from runtime.capabilities.order_support import customer_order_status
 from runtime.capabilities import (
     Capability,
     CapabilityInput,
@@ -14,6 +15,7 @@ from runtime.contracts import (
     ExecutionStatus,
     FollowUpRequest,
     GeneratedExecutionOutcome,
+    ResponseIcon,
 )
 
 
@@ -57,9 +59,10 @@ class GetOrderStatusCapability(Capability[CommerceSession]):
                 fragments=(
                     ApprovedResponseFragment(
                         id="order-status",
-                        text=f"Order {order.public_order_number} status: {order.status.value}.",
+                        text=f"Order {order.public_order_number} status: {customer_order_status(order.status)}.",
                     ),
                 ),
-                protected_values=(order.public_order_number, order.status.value),
+                protected_values=(order.public_order_number, customer_order_status(order.status)),
+                heading_emoji=ResponseIcon.ORDER,
             ),
         )

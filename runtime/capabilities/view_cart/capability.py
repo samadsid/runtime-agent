@@ -15,6 +15,8 @@ from runtime.contracts import (
     FollowUpRequest,
     GeneratedExecutionOutcome,
     ResponseFragmentKind,
+    ResponseIcon,
+    ResponseLayout,
 )
 
 
@@ -59,7 +61,9 @@ class ViewCartCapability(Capability[CommerceSession]):
                 ),
             )
 
-        fragments = [ApprovedResponseFragment(id="cart-heading", text="Your cart:")]
+        fragments = [ApprovedResponseFragment(
+            id="cart-heading", text="Your cart:", kind=ResponseFragmentKind.SECTION
+        )]
         fragments.extend(
             ApprovedResponseFragment(
                 id=f"cart-item-{ordinal}",
@@ -76,6 +80,8 @@ class ViewCartCapability(Capability[CommerceSession]):
             outcome=GeneratedExecutionOutcome(
                 status=ExecutionStatus.SUCCESS,
                 fragments=tuple(fragments),
+                layout=ResponseLayout.SUMMARY,
+                heading_emoji=ResponseIcon.CART,
                 protected_values=tuple(
                     value
                     for ordinal, item in enumerate(items, start=1)

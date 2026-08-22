@@ -14,6 +14,7 @@ from app.jobs import (
 from app.observability.customer_journey_metrics import (
     PrometheusCustomerJourneyObserver,
 )
+from app.observability.response_metrics import PrometheusResponseObserver
 from channels.models import WhatsAppProviderName
 from channels.templates import WhatsAppTemplateRegistry
 from commerce.models import CommerceSession
@@ -790,6 +791,7 @@ class ApplicationContainer:
         self.response_generator = ResponseGenerator(
             prompt_builder=self.response_prompt_builder,
             llm_provider=self.llm_provider,
+            observer=PrometheusResponseObserver(),
         )
 
         self.memory_manager = MemoryManager(
@@ -844,6 +846,11 @@ class ApplicationContainer:
             window_hours=self.settings.WHATSAPP_CUSTOMER_SERVICE_WINDOW_HOURS,
             notification_templates=self.notification_templates,
             provider_templates=self.whatsapp_templates,
+            max_text_chars=(
+                self.settings.META_WHATSAPP_MAX_TEXT_CHARS
+                if self.whatsapp_provider_name is WhatsAppProviderName.META_CLOUD
+                else self.settings.TWILIO_WHATSAPP_MAX_OUTBOUND_BODY_CHARS
+            ),
             **common,
         )
         self.channel_inbound_processor.start()

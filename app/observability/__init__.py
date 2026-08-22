@@ -3,6 +3,7 @@ from .channel_metrics import (
     DELIVERY_EVENTS,
     INBOX_LATENCY,
     OUTBOUND,
+    OUTBOUND_PRESENTATION,
     RETRIES,
     WEBHOOKS,
     WORKER_HEALTH,
@@ -22,6 +23,7 @@ from .notification_metrics import (
     NOTIFICATION_LOCALE_FALLBACK,
     NOTIFICATION_WORKER_HEALTH,
 )
+from .response_metrics import PrometheusResponseObserver
 
 __all__ = [
     "AMBIGUOUS_SENDS",
@@ -36,6 +38,8 @@ __all__ = [
     "NOTIFICATION_LOCALE_FALLBACK",
     "NOTIFICATION_WORKER_HEALTH",
     "OUTBOUND",
+    "OUTBOUND_PRESENTATION",
+    "PrometheusResponseObserver",
     "RETRIES",
     "REVERSE_GEOCODER_REQUESTS",
     "SAVED_LOCATION_REVALIDATIONS",

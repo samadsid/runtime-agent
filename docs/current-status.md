@@ -2,6 +2,26 @@
 
 ## Completed
 
+### WhatsApp Message Formatting
+
+- Typed short, selectable-list, informational-list, summary, and error layouts
+  guide the existing response composition boundary
+- Generated, fixed, and deterministic fallback responses share WhatsApp-safe
+  whitespace, emphasis, list, Unicode, and customer-controlled-markup handling
+- Typed semantic heading emoji are guaranteed for catalog, search, cart, review,
+  delivery, payment, order, and success messages without decorating ordinals
+- Category, product, cart, checkout, saved-address, onboarding-review, payment,
+  order, status-history, and cancellation presentations preserve isolated ordinals
+  and approved business values
+- Free-form notifications use compact reviewed layouts while Meta/Twilio template
+  identifiers, languages, structures, and parameter ordering remain unchanged
+- Low-cardinality rendering, fallback, normalization, validation, delivery-mode,
+  and outbound rejection metrics contain no message text or customer identifiers
+- WhatsApp dispatch rejects oversized or structurally invalid text without
+  truncating, splitting, or changing commerce state
+
+The graph remains `START → PlannerNode → ExecuteNode → ResponseNode → END`.
+
 ### Sequential Customer Onboarding
 
 - First-time customers receive one greeting and only the next sequential request:

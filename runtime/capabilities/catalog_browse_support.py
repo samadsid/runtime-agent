@@ -15,6 +15,8 @@ from runtime.contracts import (
     FollowUpRequest,
     GeneratedExecutionOutcome,
     ResponseFragmentKind,
+    ResponseIcon,
+    ResponseLayout,
 )
 
 
@@ -43,13 +45,20 @@ def browse_result_output(
             has_next=category_page.has_next,
             created_at=created_at,
         )
-        fragments = tuple(
+        fragments = (
+            ApprovedResponseFragment(
+                id="catalog-categories-heading",
+                text="Available categories",
+                kind=ResponseFragmentKind.SECTION,
+            ),
+            *tuple(
             ApprovedResponseFragment(
                 id=f"catalog-category-{ordinal}",
                 text=f"{ordinal}. {item.name}",
                 kind=ResponseFragmentKind.ITEM,
             )
             for ordinal, item in enumerate(category_page.items, 1)
+            ),
         )
         return CapabilityOutput(
             session=session.model_copy(update={"catalog_browse": state}),
@@ -60,6 +69,8 @@ def browse_result_output(
                     id="select-catalog-category",
                     question="Which category would you like to browse?",
                 ),
+                layout=ResponseLayout.SELECTABLE_LIST,
+                heading_emoji=ResponseIcon.CATALOG,
                 protected_values=tuple(
                     value
                     for ordinal, item in enumerate(category_page.items, 1)
@@ -88,13 +99,20 @@ def browse_result_output(
             has_next=product_page.has_next,
             created_at=created_at,
         )
-        fragments = tuple(
+        fragments = (
+            ApprovedResponseFragment(
+                id="catalog-products-heading",
+                text="Available products",
+                kind=ResponseFragmentKind.SECTION,
+            ),
+            *tuple(
             ApprovedResponseFragment(
                 id=f"catalog-product-{ordinal}",
                 text=f"{ordinal}. {item.name} - {item.currency} {format(item.price, 'f')}/{item.unit}",
                 kind=ResponseFragmentKind.ITEM,
             )
             for ordinal, item in enumerate(product_page.items, 1)
+            ),
         )
         return CapabilityOutput(
             session=session.model_copy(update={"catalog_browse": state}),
@@ -105,6 +123,8 @@ def browse_result_output(
                     id="select-catalog-product",
                     question="Which product would you like?",
                 ),
+                layout=ResponseLayout.SELECTABLE_LIST,
+                heading_emoji=ResponseIcon.CATALOG,
                 protected_values=tuple(
                     value
                     for ordinal, item in enumerate(product_page.items, 1)

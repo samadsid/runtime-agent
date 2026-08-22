@@ -9,13 +9,15 @@ from runtime.capabilities import (
     CapabilityName,
     CapabilityOutput,
 )
-from runtime.capabilities.order_support import format_amount
+from runtime.capabilities.order_support import customer_order_status, format_amount
 from runtime.contracts import (
     ApprovedResponseFragment,
     ExecutionStatus,
     FollowUpRequest,
     GeneratedExecutionOutcome,
     ResponseFragmentKind,
+    ResponseIcon,
+    ResponseLayout,
 )
 
 
@@ -81,32 +83,44 @@ class ListOrdersCapability(Capability[CommerceSession]):
                 ),
             )
 
-        fragments = tuple(
+        fragments = (
+            ApprovedResponseFragment(
+                id="recent-orders-heading",
+                text="Recent orders",
+                kind=ResponseFragmentKind.SECTION,
+            ),
+            *tuple(
             ApprovedResponseFragment(
                 id=f"order-{ordinal}",
                 kind=ResponseFragmentKind.ITEM,
                 text=(
-                    f"{ordinal}. Order {summary.public_order_number} | "
-                    f"Created {summary.created_at.isoformat()} | "
-                    f"Status {summary.status.value} | "
-                    f"Items {summary.item_count} | "
-                    f"Total {format_amount(summary.total_amount)}"
+                    f"{ordinal}. Order {summary.public_order_number}\n"
+                    f"   Status: {customer_order_status(summary.status)}\n"
+                    f"   Items: {summary.item_count} • Total: {format_amount(summary.total_amount)}\n"
+                    f"   Created: {summary.created_at.isoformat()}"
                 ),
             )
             for ordinal, summary in enumerate(summaries, start=1)
+            ),
         )
         return CapabilityOutput(
             session=session,
             outcome=GeneratedExecutionOutcome(
                 status=ExecutionStatus.SUCCESS,
                 fragments=fragments,
+                follow_up=FollowUpRequest(
+                    id="select-recent-order",
+                    question="Which order would you like to view?",
+                ),
+                layout=ResponseLayout.SELECTABLE_LIST,
+                heading_emoji=ResponseIcon.ORDER,
                 protected_values=tuple(
                     value
                     for summary in summaries
                     for value in (
                         summary.public_order_number,
                         summary.created_at.isoformat(),
-                        summary.status.value,
+                        customer_order_status(summary.status),
                         str(summary.item_count),
                         format_amount(summary.total_amount),
                     )

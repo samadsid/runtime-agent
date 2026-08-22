@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Annotated, Literal
 
@@ -19,8 +20,33 @@ class ResponseFragmentKind(str, Enum):
     TEXT = "text"
     SECTION = "section"
     ITEM = "item"
+    BULLET = "bullet"
     FIELD = "field"
     TOTAL = "total"
+
+
+class ResponseLayout(str, Enum):
+    SHORT = "short"
+    SELECTABLE_LIST = "selectable_list"
+    INFORMATIONAL_LIST = "informational_list"
+    SUMMARY = "summary"
+    ERROR = "error"
+    # Source compatibility for callers constructing the transient composition model.
+    PARAGRAPH = "short"
+    LIST = "selectable_list"
+
+
+class ResponseIcon(str, Enum):
+    CATALOG = "🛍️"
+    SEARCH = "🔎"
+    CART = "🛒"
+    REVIEW = "📋"
+    DELIVERY = "📍"
+    PAYMENT = "💳"
+    ORDER = "📦"
+    SUCCESS = "✅"
+    INFO = "ℹ️"
+    WARNING = "⚠️"
 
 
 class ApprovedResponseFragment(BaseModel):
@@ -59,6 +85,8 @@ class FixedExecutionOutcome(BaseModel):
     mode: Literal["fixed"] = "fixed"
     status: ExecutionStatus
     message: str = Field(min_length=1)
+    layout: ResponseLayout = ResponseLayout.SHORT
+    heading_emoji: ResponseIcon | None = None
 
 
 class GeneratedExecutionOutcome(BaseModel):
@@ -69,6 +97,8 @@ class GeneratedExecutionOutcome(BaseModel):
     fragments: tuple[ApprovedResponseFragment, ...] = ()
     follow_up: FollowUpRequest | None = None
     protected_values: tuple[str, ...] = ()
+    layout: ResponseLayout | None = None
+    heading_emoji: ResponseIcon | None = None
 
     @model_validator(mode="after")
     def validate_presentation_data(self) -> GeneratedExecutionOutcome:
@@ -87,6 +117,33 @@ class GeneratedExecutionOutcome(BaseModel):
         }
         if self.status in statuses_requiring_follow_up and self.follow_up is None:
             raise ValueError(f"Status '{self.status.value}' requires a follow-up.")
+
+        if self.layout is None:
+            kinds = {fragment.kind for fragment in self.fragments}
+            items = tuple(
+                fragment
+                for fragment in self.fragments
+                if fragment.kind is ResponseFragmentKind.ITEM
+            )
+            if self.follow_up is not None and self.follow_up.options:
+                layout = ResponseLayout.SELECTABLE_LIST
+            elif kinds & {
+                ResponseFragmentKind.SECTION,
+                ResponseFragmentKind.FIELD,
+                ResponseFragmentKind.TOTAL,
+            }:
+                layout = ResponseLayout.SUMMARY
+            elif items and all(
+                re.match(r"^\s*\d+\.\s+", fragment.text) for fragment in items
+            ):
+                layout = ResponseLayout.SELECTABLE_LIST
+            elif items or ResponseFragmentKind.BULLET in kinds:
+                layout = ResponseLayout.INFORMATIONAL_LIST
+            elif self.status is not ExecutionStatus.SUCCESS:
+                layout = ResponseLayout.ERROR
+            else:
+                layout = ResponseLayout.SHORT
+            object.__setattr__(self, "layout", layout)
 
         return self
 

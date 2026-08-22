@@ -12,6 +12,8 @@ from runtime.contracts import (
     FollowUpRequest,
     GeneratedExecutionOutcome,
     ResponseFragmentKind,
+    ResponseIcon,
+    ResponseLayout,
 )
 
 
@@ -122,6 +124,8 @@ def review_outcome(state: CustomerOnboardingState) -> GeneratedExecutionOutcome:
             question="Are these details correct and do you confirm saving them for future orders?",
         ),
         protected_values=(state.pending_customer_name, masked_phone, address),
+        layout=ResponseLayout.SUMMARY,
+        heading_emoji=ResponseIcon.REVIEW,
     )
 
 

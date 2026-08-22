@@ -126,12 +126,30 @@ Executes planner commands.
 arrange approved response fragments and follow-up questions; it does not make
 business decisions, execute capabilities, or modify `CommerceSession`.
 
+Every generated outcome carries a semantic presentation layout: short,
+selectable list, informational list, summary, or error. The response LLM must
+return that layout and the existing fragment/follow-up references. After
+grounding validation, one deterministic WhatsApp-safe formatter normalizes line
+endings, spacing, supported emphasis, list structure, and customer-controlled
+markup. The same formatter renders approved fallback content when generation or
+validation fails; it never calculates, translates, truncates, reorders, or
+splits business facts.
+
+Outcomes may also declare one semantic heading emoji. The formatter guarantees
+that exact emoji once at the start of the response while leaving numbered
+options undecorated. Capabilities never infer product- or category-specific
+emoji from customer or catalog text.
+
 Customer-visible text is generated from approved outcome data. The response
 LLM receives the latest customer message only as a language, script, tone, and
 chat-style signal, so it can respond naturally in any language the model
 supports. It must preserve approved names, prices, quantities, units,
 availability, and option numbers exactly. No other conversation or session
 data crosses the response prompt boundary.
+
+The WhatsApp dispatcher validates free-form size and structure before provider
+submission. Approved templates retain their registered names, languages,
+structure, and parameter order; dynamic parameters are treated only as data.
 
 ---
 

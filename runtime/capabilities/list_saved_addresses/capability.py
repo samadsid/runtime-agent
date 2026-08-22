@@ -16,6 +16,8 @@ from runtime.contracts import (
     FollowUpRequest,
     GeneratedExecutionOutcome,
     ResponseFragmentKind,
+    ResponseIcon,
+    ResponseLayout,
 )
 
 
@@ -76,7 +78,8 @@ class ListSavedAddressesCapability(Capability[CommerceSession]):
             )
         fragments = [
             ApprovedResponseFragment(
-                id="saved-addresses", text="Saved delivery addresses:"
+                id="saved-addresses", text="Saved delivery addresses",
+                kind=ResponseFragmentKind.SECTION,
             )
         ]
         protected: list[str] = []
@@ -99,6 +102,8 @@ class ListSavedAddressesCapability(Capability[CommerceSession]):
                     id="select-saved-address",
                     question="Which saved address would you like to use?",
                 ),
+                layout=ResponseLayout.SELECTABLE_LIST,
+                heading_emoji=ResponseIcon.DELIVERY,
                 protected_values=tuple(protected),
             ),
         )

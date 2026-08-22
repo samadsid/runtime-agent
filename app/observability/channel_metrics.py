@@ -37,3 +37,8 @@ AMBIGUOUS_SENDS = Counter(
     "Outbound sends that may have been accepted by the provider.",
     ("channel",),
 )
+OUTBOUND_PRESENTATION = Counter(
+    "commerce_channel_outbound_presentation_total",
+    "WhatsApp outbound presentation mode and validation outcomes.",
+    ("mode", "outcome"),
+)

@@ -9,6 +9,8 @@ from .execution import (
     FollowUpRequest,
     GeneratedExecutionOutcome,
     ResponseFragmentKind,
+    ResponseIcon,
+    ResponseLayout,
 )
 from .message import Message, MessageRole
 from .request import RuntimeRequest
@@ -29,6 +31,8 @@ __all__ = [
     "Message",
     "MessageRole",
     "ResponseFragmentKind",
+    "ResponseIcon",
+    "ResponseLayout",
     "RuntimeEvent",
     "RuntimeRequest",
     "RuntimeResponse",

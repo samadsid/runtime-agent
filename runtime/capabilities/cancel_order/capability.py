@@ -15,6 +15,7 @@ from runtime.capabilities import (
     CapabilityOutput,
 )
 from runtime.capabilities.order_support import (
+    customer_order_status,
     format_amount,
     resolve_order_target,
     target_error_outcome,
@@ -24,6 +25,9 @@ from runtime.contracts import (
     ExecutionStatus,
     FollowUpRequest,
     GeneratedExecutionOutcome,
+    ResponseFragmentKind,
+    ResponseIcon,
+    ResponseLayout,
 )
 
 
@@ -96,10 +100,28 @@ class CancelOrderCapability(Capability[CommerceSession]):
                 fragments=(
                     ApprovedResponseFragment(
                         id="cancellation-review",
-                        text=(
-                            f"Cancel Order {order.public_order_number} | Status {order.status.value} | "
-                            f"Items {len(order.items)} | Total {format_amount(total)}"
-                        ),
+                        text="Cancellation review",
+                        kind=ResponseFragmentKind.SECTION,
+                    ),
+                    ApprovedResponseFragment(
+                        id="cancellation-order",
+                        text=f"Order: {order.public_order_number}",
+                        kind=ResponseFragmentKind.FIELD,
+                    ),
+                    ApprovedResponseFragment(
+                        id="cancellation-status",
+                        text=f"Status: {customer_order_status(order.status)}",
+                        kind=ResponseFragmentKind.FIELD,
+                    ),
+                    ApprovedResponseFragment(
+                        id="cancellation-items",
+                        text=f"Items: {len(order.items)}",
+                        kind=ResponseFragmentKind.FIELD,
+                    ),
+                    ApprovedResponseFragment(
+                        id="cancellation-total",
+                        text=f"Total: {format_amount(total)}",
+                        kind=ResponseFragmentKind.TOTAL,
                     ),
                 ),
                 follow_up=FollowUpRequest(
@@ -108,10 +130,12 @@ class CancelOrderCapability(Capability[CommerceSession]):
                 ),
                 protected_values=(
                     order.public_order_number,
-                    order.status.value,
+                    customer_order_status(order.status),
                     str(len(order.items)),
                     format_amount(total),
                 ),
+                layout=ResponseLayout.SUMMARY,
+                heading_emoji=ResponseIcon.REVIEW,
             ),
         )
 
@@ -173,25 +197,25 @@ class CancelOrderCapability(Capability[CommerceSession]):
                 ApprovedResponseFragment(
                     id="cancellation-denied",
                     text=(
-                        f"Order {order_reference} is {status.value}. Self-service cancellation "
+                        f"Order {order_reference} is {customer_order_status(status)}. Self-service cancellation "
                         f"is no longer available. Contact {self._support_path}."
                     ),
                 ),
             ),
-            protected_values=(order_reference, status.value, self._support_path),
+            protected_values=(order_reference, customer_order_status(status), self._support_path),
         )
 
     @staticmethod
     def _cancelled_outcome(order_reference: str, *, already: bool) -> GeneratedExecutionOutcome:
         text = (
-            f"Order {order_reference} was already CANCELLED."
+            f"Order {order_reference} was already Cancelled."
             if already
-            else f"Order {order_reference} is CANCELLED and its inventory was released."
+            else f"Order {order_reference} is Cancelled."
         )
         return GeneratedExecutionOutcome(
             status=ExecutionStatus.SUCCESS,
             fragments=(
                 ApprovedResponseFragment(id="order-cancelled", text=text),
             ),
-            protected_values=(order_reference, OrderStatus.CANCELLED.value),
+            protected_values=(order_reference, customer_order_status(OrderStatus.CANCELLED)),
         )

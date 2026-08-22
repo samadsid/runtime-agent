@@ -305,4 +305,5 @@ async def test_get_order_status_returns_latest_persisted_status() -> None:
 
     assert output.outcome.status == ExecutionStatus.SUCCESS
     assert order.order.public_order_number in output.outcome.fragments[0].text
-    assert OrderStatus.CONFIRMED.value in output.outcome.fragments[0].text
+    assert "Confirmed" in output.outcome.fragments[0].text
+    assert OrderStatus.CONFIRMED.value not in output.outcome.fragments[0].text

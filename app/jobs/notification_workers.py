@@ -28,6 +28,7 @@ from infrastructure.database.repositories import (
     PostgresChannelRepository,
     PostgresNotificationOutboxRepository,
 )
+from runtime.responses import WhatsAppResponseFormatter
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,8 @@ class NotificationOutboxProcessor(PeriodicChannelWorker):
             if fell_back:
                 NOTIFICATION_LOCALE_FALLBACK.labels(target.channel.value).inc()
             body, variables = self._templates.render(template, payload)
+            body, _ = WhatsAppResponseFormatter.normalize(body)
+            WhatsAppResponseFormatter.validate_structure(body)
             now = datetime.now(timezone.utc)
             last_inbound = await self._channel_repository.conversation_last_inbound(
                 target.conversation_id

@@ -46,6 +46,7 @@ from runtime.contracts import (
     FollowUpRequest,
     GeneratedExecutionOutcome,
     ResponseFragmentKind,
+    ResponseIcon,
 )
 
 logger = logging.getLogger(__name__)
@@ -241,7 +242,7 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
                 fragments=(
                     ApprovedResponseFragment(
                         id="order-confirmed",
-                        text="✅ Order Confirmed",
+                        text="Order Confirmed",
                         kind=ResponseFragmentKind.SECTION,
                     ),
                     ApprovedResponseFragment(
@@ -265,6 +266,7 @@ class ConfirmOrderCapability(Capability[CommerceSession]):
                     payment_method_label(order.payment_method),
                     formatted_total,
                 ),
+                heading_emoji=ResponseIcon.SUCCESS,
             ),
         )
 

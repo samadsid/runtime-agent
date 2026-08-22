@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-from enum import Enum
-
 from pydantic import BaseModel, ConfigDict, Field
 
-
-class ResponseLayout(str, Enum):
-    PARAGRAPH = "paragraph"
-    LIST = "list"
+from runtime.contracts import ResponseLayout
 
 
 class ResponseComposition(BaseModel):
